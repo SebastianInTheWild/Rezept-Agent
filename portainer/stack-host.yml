@@ -1,6 +1,6 @@
-# Unser Zuhause – Agenten, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
+# Unser Zuhause – Rezepte, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
 #
-#   /home/sebastian/docker/agents/
+#   /home/sebastian/docker/rezepte/
 #     zeitplan.conf   Wann welcher Agent läuft (Änderungen gelten ohne Neustart)
 #     agents/         Ein Ordner je Agent (agent.json + prompt.md), _vorlage zum Kopieren
 #     app/            Programm (Zeitplan, Werkzeuge)
@@ -11,7 +11,7 @@
 services:
   agents:
     image: node:22-bookworm-slim
-    container_name: agents
+    container_name: rezepte
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     working_dir: /data/app
@@ -22,27 +22,28 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       NOTIFY_PERSONS: ${NOTIFY_PERSONS:-person.sebastian}
-      SKIP_LABEL: ${SKIP_LABEL:-Test}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten
       SCHEDULE_FILE: /data/zeitplan.conf
       DISABLE_AUTOUPDATER: "1"
+      # Eigenes HA-Dashboard, damit es das Dashboard „Agenten“ des Add-ons nicht überschreibt
+      CONTROL_DASHBOARD: dashboard-rezepte
     # Weboberfläche „Zeitplan“ (Port 8080 im Container) über Nginx Proxy Manager im ProxyNetwork.
     # Der Homepage-Agent legt aus homepage-agent.* DNS-Eintrag und Proxy-Host an, homepage.* ist die Kachel.
     # Passwort optional über WEB_PASSWORT in geheim.env.
     labels:
-      homepage-agent.domain: ${WEB_DOMAIN:-agent.hamm.schmalzbauer.work}
+      homepage-agent.domain: ${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
       homepage-agent.port: "8080"
       homepage.group: SmartHome
-      homepage.name: Agenten
-      homepage.icon: mdi-robot-outline
-      homepage.href: https://${WEB_DOMAIN:-agent.hamm.schmalzbauer.work}
-      homepage.description: Schedule and status of the Claude agents for Home Assistant
+      homepage.name: Rezepte
+      homepage.icon: mdi-chef-hat
+      homepage.href: https://${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
+      homepage.description: Recipe agents for Tandoor (Slack bridge, quality check)
     networks:
       - ProxyNetwork
     volumes:
-      - ${AGENTS_HOST_DIR:-/home/sebastian/docker/agents}:/data
+      - ${AGENTS_HOST_DIR:-/home/sebastian/docker/rezepte}:/data
 
 networks:
   ProxyNetwork:

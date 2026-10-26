@@ -1,4 +1,4 @@
-# Unser Zuhause – Agenten: Claude Code ohne Bildschirm, nach Zeitplan, für Home Assistant
+# Unser Zuhause – Rezepte: Claude Code ohne Bildschirm für Tandoor-Rezepte (Slack, Qualitätsprüfung)
 # Autor: SebastianInTheWild · MIT-Lizenz
 FROM node:22-bookworm-slim
 

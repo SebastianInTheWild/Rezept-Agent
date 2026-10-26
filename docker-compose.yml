@@ -1,8 +1,8 @@
 services:
   agents:
     build: .
-    image: ha-unser-zuhause-agents
-    container_name: ha-unser-zuhause-agents
+    image: ha-unser-zuhause-rezepte
+    container_name: ha-unser-zuhause-rezepte
     restart: unless-stopped
     env_file: .env
     volumes:

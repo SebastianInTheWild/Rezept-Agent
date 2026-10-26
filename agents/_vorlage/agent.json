@@ -5,8 +5,8 @@
   "schedule": ["07:30"],
   "precheck": "",
   "allowedTools": [
-    "Bash(node ha.mjs states:*)",
-    "Bash(node ha.mjs notify:*)"
+    "Bash(node tandoor.mjs search:*)",
+    "Bash(node tandoor.mjs recipe:*)"
   ],
   "maxTurns": 20
 }
