@@ -139,18 +139,41 @@ const tidy = () => {
 tidy();
 setInterval(tidy, 86_400_000);
 
-// Einmal täglich die Rezept-Statistik in den Kanal (REZEPT_STATISTIK = "HH:MM", Standard 19:00; "aus" = nie).
-// Läuft die Brücke zur Uhrzeit nicht (Neustart), wird die Statistik danach am selben Tag nachgeholt.
-const STATS_AT = (process.env.REZEPT_STATISTIK || "19:00").trim();
+// Einmal täglich die Rezept-Statistik in den Kanal. Uhrzeit aus zeitplan.conf („rezept-statistik = 19:00“,
+// auch mit Wochentagen „Mo,Mi,Fr 19:00“ oder „aus“), sonst REZEPT_STATISTIK, sonst 19:00. Die Datei wird jede Minute
+// neu gelesen, Änderungen gelten also ohne Neustart. Lief die Brücke zur Uhrzeit nicht, wird am selben Tag nachgeholt.
 const STATS_FILE = join(REZEPTE, "statistik.json");
+const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(process.env.AGENTS_DIR || "/data/agents", "..", "zeitplan.conf");
 const tz = process.env.TZ || "Europe/Berlin";
+const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+let lastPlan = "";
+
+function statsPlan() {
+  let raw = (process.env.REZEPT_STATISTIK || "19:00").trim();
+  let source = process.env.REZEPT_STATISTIK ? "REZEPT_STATISTIK" : "Standard";
+  try {
+    const line = readFileSync(SCHEDULE_FILE, "utf8").split(/\r?\n/).map((l) => l.replace(/#.*/, "").trim()).find((l) => /^rezept-statistik\s*[=:]/.test(l));
+    if (line) [raw, source] = [line.replace(/^rezept-statistik\s*[=:]\s*/, "").trim(), "zeitplan.conf"];
+  } catch {}
+  if (/^(aus|off|-)?$/i.test(raw)) return { off: true, raw: "aus", source };
+  const m = /^(?:([A-Za-z,]+)\s+)?(\d{1,2}:\d{2})$/.exec(raw);
+  const days = m?.[1] ? m[1].split(",").map((d) => d.trim()) : WEEKDAYS;
+  if (!m || !days.every((d) => WEEKDAYS.includes(d))) return { error: `„${raw}“ nicht verstanden (Beispiel: rezept-statistik = 19:00)`, raw, source };
+  return { days, time: m[2].padStart(5, "0"), raw, source };
+}
+
 async function dailyStats() {
-  if (!/^\d{1,2}:\d{2}$/.test(STATS_AT) || !CHANNEL()) return;
+  const plan = statsPlan();
+  const desc = plan.off ? "aus" : plan.error || `${plan.raw} (${plan.source})`;
+  if (desc !== lastPlan) log(`Rezept-Statistik: ${desc}`);
+  lastPlan = desc;
+  if (plan.off || plan.error || !CHANNEL()) return;
   const now = new Date();
   const today = now.toLocaleDateString("sv-SE", { timeZone: tz });
   const hhmm = now.toLocaleTimeString("de-DE", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+  const weekday = now.toLocaleDateString("de-DE", { timeZone: tz, weekday: "short" }).replace(".", "");
   const last = existsSync(STATS_FILE) ? JSON.parse(readFileSync(STATS_FILE, "utf8")).last : "";
-  if (last === today || hhmm < STATS_AT.padStart(5, "0")) return;
+  if (last === today || !plan.days.includes(weekday) || hhmm < plan.time) return;
   writeFileSync(STATS_FILE, JSON.stringify({ last: today }));
   try {
     const s = await stats(now);
@@ -160,7 +183,5 @@ async function dailyStats() {
     log(`Statistik fehlgeschlagen: ${e.message}`);
   }
 }
-if (STATS_AT !== "aus") {
-  log(`Rezept-Statistik täglich um ${STATS_AT}`);
-  setInterval(dailyStats, 60_000);
-}
+dailyStats();
+setInterval(dailyStats, 60_000);

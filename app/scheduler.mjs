@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENTS_DIR, clearRunning, loadAgent, readStatus, runAgent } from "./run-agent.mjs";
 import { startControl } from "./lib/control.mjs";
+import { startWeb } from "./lib/web.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const RUNS_FILE = join(DATA_DIR, "runs.json");
@@ -152,6 +153,8 @@ async function loop() {
   // Läuft-Markierungen eines abgebrochenen Laufs entfernen; Steuerung über HA (CONTROL=off schaltet sie ab)
   clearRunning(agents().map((a) => a.id));
   const control = process.env.CONTROL === "off" || !process.env.HA_TOKEN ? null : startControl({ agents, readStatus });
+  // Weboberfläche „Zeitplan“ (WEB_PORT, Standard 8080; „aus“ = keine)
+  startWeb();
   // Beim ersten Start keine alten Zeiten von heute nachholen
   const n0 = now();
   const runs = loadRuns();

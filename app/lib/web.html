@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeitplan · Agenten</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230066cc'/%3E%3Cpath d='M16 8v8l5 3' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  /* Tokens nach dem Apple Design System */
+  :root {
+    --primary: #0066cc; --primary-focus: #0071e3; --primary-on-dark: #2997ff;
+    --ink: #1d1d1f; --ink-80: #333333; --ink-48: #7a7a7a; --body-muted: #cccccc;
+    --canvas: #ffffff; --parchment: #f5f5f7; --pearl: #fafafc; --tile: #272729; --black: #000000;
+    --hairline: #e0e0e0; --divider: #f0f0f0; --on-primary: #ffffff;
+    --danger: #ff3b30; --success: #34c759; --warning: #ff9500;
+    --xxs: 2px; --xs: 4px; --sm: 8px; --md: 12px; --base: 16px; --lg: 20px; --xl: 24px; --xxl: 32px; --xxxl: 48px; --huge: 64px;
+    --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--parchment); color: var(--ink); font: 400 17px/1.47 var(--font); letter-spacing: -0.374px; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; letter-spacing: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--primary-focus); outline-offset: 2px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 var(--xl); }
+
+  .nav { background: var(--black); color: var(--canvas); position: sticky; top: 0; z-index: 5; }
+  .nav .wrap { height: 44px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; letter-spacing: -0.12px; }
+  .nav strong { font-weight: 600; font-size: 14px; }
+  .nav span { color: var(--body-muted); }
+
+  header.hero { padding: var(--xxxl) 0 var(--xl); }
+  h1 { font-size: 40px; line-height: 1.1; font-weight: 700; letter-spacing: -0.28px; margin: 0 0 var(--sm); }
+  .sub { color: var(--ink-48); margin: 0; max-width: 620px; }
+
+  .list { display: grid; gap: var(--base); padding-bottom: var(--huge); }
+  .card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: var(--lg); display: grid; gap: var(--md); }
+  .card.editing { border: 2px solid var(--primary-focus); padding: calc(var(--lg) - 1px); }
+  .head { display: flex; gap: var(--md); align-items: flex-start; justify-content: space-between; }
+  .title { font-size: 20px; line-height: 1.2; font-weight: 600; margin: 0; }
+  .desc { color: var(--ink-48); font-size: 15px; margin: var(--xs) 0 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: var(--xs) var(--lg); font-size: 13px; color: var(--ink-80); }
+  .meta b { font-weight: 600; color: var(--ink); }
+  .chips { display: flex; flex-wrap: wrap; gap: var(--xs); align-items: center; }
+  .chip { background: var(--parchment); color: var(--ink-80); border-radius: var(--r-pill); padding: var(--xxs) var(--sm); font-size: 13px; }
+  .source { font-size: 13px; color: var(--ink-48); }
+  .badge { border-radius: var(--r-pill); padding: var(--xxs) var(--sm); font-size: 13px; white-space: nowrap; background: var(--parchment); }
+  .badge.run { background: var(--primary); color: var(--on-primary); }
+  .badge.ok { color: var(--success); } .badge.err { color: var(--danger); } .badge.idle { color: var(--ink-48); }
+
+  .btn { border-radius: var(--r-pill); padding: var(--sm) var(--lg); border: 1px solid var(--primary); background: var(--canvas); color: var(--primary); cursor: pointer; transition: transform .15s ease-out; white-space: nowrap; }
+  .btn.primary { background: var(--primary); color: var(--on-primary); }
+  .btn:active { transform: scale(0.95); }
+  .btn[disabled] { opacity: .5; cursor: default; }
+  .link { border: 0; background: none; color: var(--primary); cursor: pointer; padding: var(--xs) 0; justify-self: start; }
+
+  /* Editor */
+  .editor { display: grid; gap: var(--base); padding-top: var(--md); border-top: 1px solid var(--divider); }
+  .seg { display: flex; flex-wrap: wrap; gap: var(--xs); }
+  .seg button, .day { border: 0; border-radius: var(--r-pill); background: var(--parchment); color: var(--ink); padding: var(--xs) var(--md); font-size: 15px; cursor: pointer; transition: transform .15s ease-out; }
+  .seg button[aria-pressed="true"], .day[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
+  .seg button:active, .day:active { transform: scale(0.96); }
+  .slot { display: flex; flex-wrap: wrap; gap: var(--sm); align-items: center; padding: var(--md); background: var(--pearl); border-radius: var(--r-md); }
+  .days { display: flex; flex-wrap: wrap; gap: var(--xs); }
+  .day { min-width: 40px; padding: var(--xs) var(--sm); font-size: 13px; }
+  .field { border: 1px solid var(--hairline); border-radius: var(--r-pill); padding: var(--xs) var(--md); background: var(--canvas); }
+  .field:focus { border-color: var(--primary); outline: none; }
+  input[type=time].field { width: 112px; }
+  input[type=number].field { width: 88px; }
+  .x { border: 0; background: none; color: var(--ink-48); cursor: pointer; font-size: 20px; line-height: 1; padding: var(--xs) var(--sm); margin-left: auto; }
+  .hint { font-size: 13px; color: var(--ink-48); margin: 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--md); align-items: center; }
+  .actions .spacer { flex: 1; }
+  .err { color: var(--danger); font-size: 13px; margin: 0; }
+
+  .toast { position: fixed; top: 56px; left: 50%; transform: translate(-50%, -12px); opacity: 0; max-width: 92%; background: var(--tile); color: var(--on-primary); padding: var(--md) var(--lg); border-radius: var(--r-lg); font-size: 15px; transition: opacity .18s ease-out, transform .22s ease-out; pointer-events: none; z-index: 10; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.error { background: var(--danger); }
+  .empty { text-align: center; padding: var(--huge) var(--xl); color: var(--ink-48); }
+  footer { font-size: 12px; color: var(--ink-48); padding: 0 0 var(--xxxl); }
+  @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="wrap"><strong>Agenten</strong><span id="clock"></span></div></nav>
+<main class="wrap">
+  <header class="hero">
+    <h1>Zeitplan</h1>
+    <p class="sub">Wann deine Agenten laufen. Änderungen landen in <code>zeitplan.conf</code> und gelten nach spätestens 30 Sekunden – ohne Neustart.</p>
+  </header>
+  <div class="list" id="list"><div class="empty">Lade …</div></div>
+  <footer id="foot"></footer>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const RESULT = { ok: ["erfolgreich", "ok"], fehler: ["fehlgeschlagen", "err"], "nichts zu tun": ["nichts zu tun", "idle"] };
+let data = null;
+let editing = null; // { id, mode, slots: [{days:Set, time}], every }
+
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const fmt = (iso) => iso ? new Date(iso).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
+function toast(msg, error) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = "toast show" + (error ? " error" : "");
+  clearTimeout(toast.t); toast.t = setTimeout(() => (t.className = "toast"), 3500);
+}
+
+// „Mo,Mi 07:30“ → { days, time }; „alle 5 min“ → { every }
+function parseSlot(s) {
+  const iv = /^alle\s+(\d+)\s*min$/i.exec(s); if (iv) return { every: Number(iv[1]) };
+  const m = /^(?:([A-Za-z,]+)\s+)?(\d{2}:\d{2})$/.exec(s); if (!m) return null;
+  return { days: new Set(m[1] ? m[1].split(",") : DAYS), time: m[2] };
+}
+const slotText = (s) => (s.days.size === 7 ? "" : DAYS.filter((d) => s.days.has(d)).join(",") + " ") + s.time;
+function describe(s) {
+  const p = parseSlot(s); if (!p) return s;
+  if (p.every) return `alle ${p.every} Minuten`;
+  const d = DAYS.filter((x) => p.days.has(x));
+  const days = d.length === 7 ? "täglich" : d.join(", ");
+  return `${days} ${p.time} Uhr`;
+}
+
+function startEdit(item) {
+  const parsed = item.schedule.map(parseSlot).filter(Boolean);
+  const every = parsed.find((p) => p.every);
+  editing = {
+    id: item.id,
+    mode: !item.enabled ? "off" : every ? "every" : "slots",
+    slots: parsed.filter((p) => !p.every).map((p) => ({ days: new Set(p.days), time: p.time })),
+    every: every ? every.every : 15,
+    error: "",
+  };
+  if (!editing.slots.length) editing.slots.push({ days: new Set(DAYS), time: "08:00" });
+  render();
+}
+
+async function save(item) {
+  const e = editing;
+  let payload;
+  if (e.mode === "off") payload = { mode: "off" };
+  else if (e.mode === "every") payload = { mode: "slots", slots: [`alle ${Math.max(1, Number(e.every) || 1)} min`] };
+  else {
+    if (e.slots.some((s) => !s.days.size)) { e.error = "Jede Zeit braucht mindestens einen Wochentag."; return render(); }
+    if (e.slots.some((s) => !/^\d{2}:\d{2}$/.test(s.time))) { e.error = "Bitte eine Uhrzeit eintragen."; return render(); }
+    payload = { mode: "slots", slots: e.slots.map(slotText) };
+  }
+  await send(item, payload);
+}
+async function send(item, payload) {
+  try {
+    const r = await fetch(`api/plan/${encodeURIComponent(item.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    data = j; editing = null; render();
+    toast(`${item.name}: gespeichert`);
+  } catch (err) {
+    if (editing) { editing.error = err.message; render(); } else toast(err.message, true);
+  }
+}
+
+function editor(item) {
+  const e = editing;
+  const box = el("div", "editor");
+  const seg = el("div", "seg");
+  const modes = item.kind === "statistik" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
+  for (const [m, label] of modes) {
+    const b = el("button", null, label); b.type = "button"; b.setAttribute("aria-pressed", String(e.mode === m));
+    b.onclick = () => { e.mode = m; e.error = ""; render(); };
+    seg.append(b);
+  }
+  box.append(seg);
+
+  if (e.mode === "slots") {
+    e.slots.forEach((s, i) => {
+      const row = el("div", "slot");
+      const days = el("div", "days");
+      for (const d of DAYS) {
+        const b = el("button", "day", d); b.type = "button"; b.setAttribute("aria-pressed", String(s.days.has(d)));
+        b.onclick = () => { s.days.has(d) ? s.days.delete(d) : s.days.add(d); render(); };
+        days.append(b);
+      }
+      const t = el("input", "field"); t.type = "time"; t.value = s.time; t.setAttribute("aria-label", "Uhrzeit");
+      t.oninput = () => (s.time = t.value);
+      row.append(days, t);
+      if (e.slots.length > 1) { const x = el("button", "x", "×"); x.type = "button"; x.title = "Zeit entfernen"; x.onclick = () => { e.slots.splice(i, 1); render(); }; row.append(x); }
+      box.append(row);
+    });
+    if (item.kind !== "statistik") {
+      const add = el("button", "link", "+ Weitere Zeit"); add.type = "button";
+      add.onclick = () => { e.slots.push({ days: new Set(DAYS), time: "12:00" }); render(); };
+      box.append(add);
+    }
+    box.append(el("p", "hint", "Eine Zeit, die heute schon vorbei ist, gilt erst ab morgen."));
+  } else if (e.mode === "every") {
+    const row = el("div", "slot");
+    row.append(el("span", null, "Alle"));
+    const n = el("input", "field"); n.type = "number"; n.min = "1"; n.value = e.every; n.setAttribute("aria-label", "Minuten");
+    n.oninput = () => (e.every = n.value);
+    row.append(n, el("span", null, "Minuten"));
+    box.append(row);
+  } else {
+    box.append(el("p", "hint", item.kind === "statistik" ? "Die Statistik wird nicht mehr geschickt." : "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Dashboard „Agenten“)."));
+  }
+  if (e.error) box.append(el("p", "err", e.error));
+
+  const actions = el("div", "actions");
+  const ok = el("button", "btn primary", "Speichern"); ok.type = "button"; ok.onclick = () => save(item);
+  const cancel = el("button", "link", "Abbrechen"); cancel.type = "button"; cancel.onclick = () => { editing = null; render(); };
+  actions.append(ok, cancel, el("span", "spacer"));
+  if (item.source === "zeitplan.conf") {
+    const def = item.default.enabled ? (item.default.schedule.map(describe).join(" · ") || "ohne Zeitplan") : "aus";
+    const reset = el("button", "link", `Standard verwenden (${def})`); reset.type = "button";
+    reset.onclick = () => send(item, { mode: "default" });
+    actions.append(reset);
+  }
+  box.append(actions);
+  return box;
+}
+
+function card(item) {
+  const c = el("article", "card" + (editing?.id === item.id ? " editing" : ""));
+  const head = el("div", "head");
+  const left = el("div");
+  left.append(el("h2", "title", item.name));
+  if (item.description) left.append(el("p", "desc", item.description));
+  head.append(left);
+  if (item.kind === "agent") {
+    const [text, cls] = item.running ? ["läuft gerade", "run"] : item.last ? RESULT[item.last.result] || [item.last.result, "idle"] : ["noch nie gelaufen", "idle"];
+    head.append(el("span", "badge " + cls, text));
+  }
+  c.append(head);
+
+  if (item.error) { c.append(el("p", "err", item.error)); return c; }
+
+  const chips = el("div", "chips");
+  if (!item.enabled) chips.append(el("span", "chip", item.kind === "statistik" ? "aus" : "pausiert – nur von Hand"));
+  else if (!item.schedule.length) chips.append(el("span", "chip", "ohne Zeitplan"));
+  else item.schedule.forEach((s) => chips.append(el("span", "chip", describe(s))));
+  chips.append(el("span", "source", item.source === "zeitplan.conf" ? "· aus zeitplan.conf" : item.source === "agent.json" ? "· Standard aus agent.json" : `· ${item.source}`));
+  c.append(chips);
+
+  const meta = el("div", "meta");
+  const add = (label, value) => { if (!value) return; const s = el("span"); s.append(el("b", null, label + " "), document.createTextNode(value)); meta.append(s); };
+  add("Nächster Lauf:", item.next);
+  if (item.kind === "agent") {
+    if (item.running) add("Seit:", fmt(item.since));
+    if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
+    if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · nichts zu tun`);
+  }
+  c.append(meta);
+
+  if (editing?.id === item.id) c.append(editor(item));
+  else if (item.kind === "agent" && !item.manual && !item.schedule.length) {
+    c.append(el("p", "hint", "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan."));
+  } else {
+    const b = el("button", "btn", "Ändern"); b.type = "button"; b.onclick = () => startEdit(item);
+    const row = el("div", "actions"); row.append(b); c.append(row);
+  }
+  return c;
+}
+
+function render() {
+  const list = document.getElementById("list");
+  list.replaceChildren(...(data?.items?.length ? data.items.map(card) : [el("div", "empty", "Keine Agenten gefunden.")]));
+  if (data) document.getElementById("foot").textContent = `Datei: ${data.file} · Zeitzone: ${data.tz}`;
+}
+
+async function load() {
+  if (editing) return; // nicht während der Bearbeitung neu zeichnen
+  try {
+    const r = await fetch("api/plan", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    data = await r.json(); render();
+  } catch (err) { toast(`Laden fehlgeschlagen: ${err.message}`, true); }
+}
+function tick() { document.getElementById("clock").textContent = new Date().toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+tick(); setInterval(tick, 30000);
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>

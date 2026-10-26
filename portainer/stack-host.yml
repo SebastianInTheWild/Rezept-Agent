@@ -28,5 +28,22 @@ services:
       DATA_DIR: /data/daten
       SCHEDULE_FILE: /data/zeitplan.conf
       DISABLE_AUTOUPDATER: "1"
+    # Weboberfläche „Zeitplan“ (Port 8080 im Container) über Nginx Proxy Manager im ProxyNetwork.
+    # Der Homepage-Agent legt aus homepage-agent.* DNS-Eintrag und Proxy-Host an, homepage.* ist die Kachel.
+    # Passwort optional über WEB_PASSWORT in geheim.env.
+    labels:
+      homepage-agent.domain: ${WEB_DOMAIN:-agent.hamm.schmalzbauer.work}
+      homepage-agent.port: "8080"
+      homepage.group: SmartHome
+      homepage.name: Agenten
+      homepage.icon: mdi-robot-outline
+      homepage.href: https://${WEB_DOMAIN:-agent.hamm.schmalzbauer.work}
+      homepage.description: Schedule and status of the Claude agents for Home Assistant
+    networks:
+      - ProxyNetwork
     volumes:
       - ${AGENTS_HOST_DIR:-/home/sebastian/docker/agents}:/data
+
+networks:
+  ProxyNetwork:
+    external: true
