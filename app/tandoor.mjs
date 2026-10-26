@@ -9,11 +9,12 @@
 //   node tandoor.mjs recipe <id>          Ein Rezept im einfachen Format
 //   node tandoor.mjs pending [--count]    Rezepte, die geprüft werden sollen (Qualitäts-Agent)
 //   node tandoor.mjs propose              <AGENT_DATA>/entwurf.json prüfen, als Entwurf anlegen und in Slack zeigen (DRY=1: nur zeigen)
+//   node tandoor.mjs stats [--text] [--post] Statistik: gesamt, geprüft, offen, noch zu prüfen (--post: in den Slack-Kanal)
 //   node tandoor.mjs reply "<text>"       Antwort im Slack-Thread des Auftrags (z. B. wenn kein Rezept zu finden war)
 
 import { existsSync, writeFileSync } from "node:fs";
 import { getRecipe, simplify } from "./lib/tandoor.mjs";
-import { context, pending, search, fetchUrl, propose, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";
+import { context, pending, search, fetchUrl, propose, stats, statsMessage, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";
 import { post, slackReady } from "./lib/slack.mjs";
 
 const out = (x) => console.log(JSON.stringify(x, null, 1));
@@ -59,6 +60,15 @@ try {
       }
       break;
     }
+    case "stats": {
+      const s = await stats();
+      if (args.includes("--post")) {
+        if (!slackReady() || !CHANNEL()) throw new Error("Slack ist nicht eingerichtet (SLACK_BOT_TOKEN/SLACK_CHANNEL)");
+        if (process.env.DRY !== "1") await post(CHANNEL(), statsMessage(s));
+      }
+      out(args.includes("--text") ? { ...s, text: statsMessage(s) } : s);
+      break;
+    }
     case "propose": {
       const r = await propose();
       out(r);
@@ -79,7 +89,7 @@ try {
       break;
     }
     default:
-      console.error("Befehle: context | job | fetch-url [url] | search <name> | recipe <id> | pending [--count] | propose | reply <text>");
+      console.error("Befehle: context | job | fetch-url [url] | search <name> | recipe <id> | pending [--count] | propose | stats [--text] [--post] | reply <text>");
       process.exitCode = 2;
   }
 } catch (e) {

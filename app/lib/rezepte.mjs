@@ -73,6 +73,50 @@ export async function pending() {
   return { total: list.length, open_proposals: open.length, batch: list.slice(0, Math.min(BATCH, free)) };
 }
 
+// Statistik über alle Rezepte (ohne Entwürfe) nach Status-Schlagwort, dazu was heute entschieden wurde
+export async function stats(now = new Date()) {
+  const store = loadStore();
+  const recipes = (await all("/api/recipe/")).filter((r) => !r.name.startsWith(DRAFT_PREFIX));
+  const has = (r, kw) => kwNames(r).includes(kw);
+  const checked = recipes.filter((r) => has(r, KW.checked)).length;
+  const open = recipes.filter((r) => has(r, KW.open)).length;
+  const skipped = recipes.filter((r) => has(r, KW.skip)).length;
+  const todo = recipes.length - checked - open - skipped;
+  const day = now.toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" });
+  const sameDay = (iso) => iso && new Date(iso).toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" }) === day;
+  return {
+    total: recipes.length,
+    checked,
+    open,
+    skipped,
+    todo,
+    batch: BATCH,
+    days_left: BATCH > 0 ? Math.ceil(todo / BATCH) : null,
+    today: {
+      proposed: Object.values(store.proposals).filter((p) => p.kind === "quality" && sameDay(p.created)).length,
+      applied: Object.values(store.proposals).filter((p) => p.status === "applied" && sameDay(p.decided)).length,
+      rejected: Object.values(store.proposals).filter((p) => ["rejected", "skipped"].includes(p.status) && sameDay(p.decided)).length,
+    },
+  };
+}
+
+export function statsMessage(s, date = new Date()) {
+  const pct = (n) => (s.total ? Math.round((100 * n) / s.total) : 0);
+  const when = date.toLocaleDateString("de-DE", { timeZone: process.env.TZ || "Europe/Berlin", weekday: "short", day: "2-digit", month: "2-digit" });
+  const lines = [
+    `📊 *Rezept-Statistik* · ${when}`,
+    `• Rezepte insgesamt: *${s.total}*`,
+    `• ✅ geprüft: *${s.checked}* (${pct(s.checked)} %)`,
+    `• ⏳ Vorschlag wartet auf dich: *${s.open}*`,
+    `• 🚫 nicht bearbeiten: ${s.skipped}`,
+    `• 📝 noch zu prüfen: *${s.todo}*` + (s.todo && s.days_left ? ` – bei ${s.batch} pro Tag noch etwa ${s.days_left} ${s.days_left === 1 ? "Tag" : "Tage"}` : ""),
+  ];
+  const t = s.today;
+  if (t.proposed || t.applied || t.rejected) lines.push(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`);
+  if (!s.todo && !s.open) lines.push("🎉 Alle Rezepte sind geprüft.");
+  return lines.join("\n");
+}
+
 export async function search(q) {
   const j = await api("GET", `/api/recipe/?query=${encodeURIComponent(q)}&page_size=10`);
   return j.results.map((r) => ({ id: r.id, name: r.name, url: recipeUrl(r.id) }));

@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent } from "./run-agent.mjs";
 import { socket, post, update, react, unreact, download, linksIn, plain, link } from "./lib/slack.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
@@ -138,3 +138,29 @@ const tidy = () => {
 };
 tidy();
 setInterval(tidy, 86_400_000);
+
+// Einmal täglich die Rezept-Statistik in den Kanal (REZEPT_STATISTIK = "HH:MM", Standard 19:00; "aus" = nie).
+// Läuft die Brücke zur Uhrzeit nicht (Neustart), wird die Statistik danach am selben Tag nachgeholt.
+const STATS_AT = (process.env.REZEPT_STATISTIK || "19:00").trim();
+const STATS_FILE = join(REZEPTE, "statistik.json");
+const tz = process.env.TZ || "Europe/Berlin";
+async function dailyStats() {
+  if (!/^\d{1,2}:\d{2}$/.test(STATS_AT) || !CHANNEL()) return;
+  const now = new Date();
+  const today = now.toLocaleDateString("sv-SE", { timeZone: tz });
+  const hhmm = now.toLocaleTimeString("de-DE", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+  const last = existsSync(STATS_FILE) ? JSON.parse(readFileSync(STATS_FILE, "utf8")).last : "";
+  if (last === today || hhmm < STATS_AT.padStart(5, "0")) return;
+  writeFileSync(STATS_FILE, JSON.stringify({ last: today }));
+  try {
+    const s = await stats(now);
+    await post(CHANNEL(), statsMessage(s, now));
+    log(`Statistik gesendet: ${s.checked}/${s.total} geprüft, ${s.todo} noch zu prüfen`);
+  } catch (e) {
+    log(`Statistik fehlgeschlagen: ${e.message}`);
+  }
+}
+if (STATS_AT !== "aus") {
+  log(`Rezept-Statistik täglich um ${STATS_AT}`);
+  setInterval(dailyStats, 60_000);
+}
