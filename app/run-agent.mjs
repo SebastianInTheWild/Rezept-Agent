@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { connect, notify } from "./lib/ha.mjs";
+import { post, slackReady } from "./lib/slack.mjs";
 
 const APP = dirname(fileURLToPath(import.meta.url));
 export const AGENTS_DIR = process.env.AGENTS_DIR || join(APP, "..", "agents");
@@ -18,7 +18,7 @@ export function loadAgent(id) {
   return { id, dir, ...cfg, promptText: prompt };
 }
 
-// Status je Agent für das Dashboard „Agenten“: status.json (läuft gerade), last-run.json (letzter echter Lauf),
+// Status je Agent für die Weboberfläche: status.json (läuft gerade), last-run.json (letzter echter Lauf),
 // last-check.json (letzte Vorprüfung ohne Arbeit bei quiet-Agenten)
 const statusFile = (id, name) => join(DATA_DIR, id, name);
 export const readStatus = (id, name) => {
@@ -112,10 +112,9 @@ async function run(id, quiet, by) {
   });
   log(`Claude beendet (Code ${code})`);
   if (code !== 0) {
-    const call = await connect().catch(() => null);
-    if (call) {
-      await notify(call, `⚠️ Agent „${agent.name || id}“`, `Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`).catch(() => {});
-      call.close();
+    // Fehlermeldung in den Slack-Kanal (SLACK_CHANNEL), falls Slack eingerichtet ist
+    if (slackReady() && process.env.SLACK_CHANNEL) {
+      await post(process.env.SLACK_CHANNEL, `⚠️ Agent „${agent.name || id}“: Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`).catch(() => {});
     }
   }
   return { code, result: code === 0 ? "ok" : "fehler", note: code === 0 ? "" : `Claude beendet mit Code ${code}` };

@@ -19,7 +19,6 @@ if ! command -v claude >/dev/null 2>&1 || [ "${CLAUDE_UPDATE:-0}" = "1" ]; then
   npm install -g @anthropic-ai/claude-code --no-fund --no-audit
 fi
 echo "Claude Code $(claude --version 2>/dev/null || echo '?')"
-[ -n "$HA_TOKEN" ] || echo "Hinweis: HA_TOKEN fehlt – ohne Home Assistant gibt es keinen Push bei Fehlern und kein Dashboard „Agenten“"
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] || echo "WARNUNG: CLAUDE_CODE_OAUTH_TOKEN fehlt – auf einem PC mit Claude Code „claude setup-token“ ausführen"
 # Slack-Brücke läuft neben dem Zeitplan, sobald beide Slack-Tokens gesetzt sind; startet sich bei Fehlern neu
 if [ -n "$SLACK_APP_TOKEN" ] && [ -n "$SLACK_BOT_TOKEN" ]; then

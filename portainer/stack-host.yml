@@ -17,18 +17,13 @@ services:
     working_dir: /data/app
     command: ["sh", "/data/app/start.sh"]
     environment:
-      HA_URL: ${HA_URL:-http://192.168.11.252:8123}
-      HA_TOKEN: ${HA_TOKEN:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
-      NOTIFY_SERVICE: ${NOTIFY_SERVICE:-}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten
       SCHEDULE_FILE: /data/zeitplan.conf
       DISABLE_AUTOUPDATER: "1"
-      # Eigenes HA-Dashboard, damit es das Dashboard „Agenten“ des Add-ons nicht überschreibt
-      CONTROL_DASHBOARD: dashboard-rezepte
     # Weboberfläche „Zeitplan“ (Port 8080 im Container) über Nginx Proxy Manager im ProxyNetwork.
     # Der Homepage-Agent legt aus homepage-agent.* DNS-Eintrag und Proxy-Host an, homepage.* ist die Kachel.
     # Passwort optional über WEB_PASSWORT in geheim.env.

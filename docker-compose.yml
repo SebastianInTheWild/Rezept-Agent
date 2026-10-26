@@ -1,5 +1,5 @@
 services:
-  agents:
+  rezept-agent:
     build: .
     image: rezept-agent
     container_name: rezept-agent

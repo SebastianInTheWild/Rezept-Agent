@@ -1,5 +1,5 @@
 // Weboberfläche „Zeitplan“: zeigt alle Agenten aus agents/ mit Zeitplan, letztem und nächstem Lauf
-// und schreibt Änderungen nach zeitplan.conf (Kommentare und Reihenfolge bleiben erhalten).
+// und schreibt Änderungen nach zeitplan.conf (Kommentare und Reihenfolge bleiben erhalten). Knopf „Jetzt starten“ je Agent.
 // Der Zeitplan liest die Datei alle 30 s, die Slack-Brücke jede Minute – ein Neustart ist nicht nötig.
 // Port: WEB_PORT (Standard 8080, „aus“ = keine Oberfläche). Passwort: WEB_PASSWORT (optional, HTTP-Anmeldung).
 // Autor: SebastianInTheWild · MIT-Lizenz
@@ -10,7 +10,6 @@ import { dirname, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AGENTS_DIR, loadAgent, readStatus } from "../run-agent.mjs";
-import { nextRunText } from "./control.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -66,6 +65,35 @@ function writeEntry(id, value) {
 
 // ---------- Daten für die Oberfläche ----------
 
+/** Nächster Lauf als Text aus den Zeitplan-Einträgen („08:00“, „So 18:00“, „alle 5 min“). */
+function nextRunText(agent, nowDate = new Date()) {
+  if (agent.enabled === false) return "nur von Hand";
+  const slots = [].concat(agent.schedule || []);
+  const every = slots.map((s) => /^alle\s+(\d+)\s*min$/i.exec(String(s).trim())).find(Boolean);
+  if (every) return `alle ${every[1]} min`;
+  const parts = (d) => Object.fromEntries(new Intl.DateTimeFormat("de-DE", { timeZone: process.env.TZ || "UTC", weekday: "short", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false }).formatToParts(d).map((x) => [x.type, x.value]));
+  const nowP = parts(nowDate);
+  const nowTime = `${nowP.hour}:${nowP.minute}`;
+  for (let add = 0; add < 8; add++) {
+    const d = new Date(nowDate.getTime() + add * 86400000);
+    const p = parts(d);
+    const wd = p.weekday.replace(".", "");
+    const times = slots
+      .map((s) => /^(?:([A-Za-z,]+)\s+)?(\d{2}:\d{2})$/.exec(String(s).trim()))
+      .filter(Boolean)
+      .filter((m) => (m[1] ? m[1].split(",").map((x) => x.trim()) : WEEKDAYS).includes(wd))
+      .map((m) => m[2])
+      .filter((t) => add > 0 || t > nowTime)
+      .sort();
+    if (times.length) return `${add === 0 ? "heute" : add === 1 ? "morgen" : `${wd} ${p.day}.${p.month}.`} ${times[0]}`;
+  }
+  return slots.length ? "–" : "nur von Hand";
+}
+
+// Von Hand angeforderte Agenten (Knopf „Jetzt starten“); der Zeitplan startet sie nacheinander
+const queued = [];
+export const takeQueued = () => queued.shift();
+
 function agentIds() {
   return readdirSync(AGENTS_DIR, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith("_") && existsSync(join(AGENTS_DIR, d.name, "agent.json")))
@@ -105,6 +133,7 @@ function overview() {
       last: last ? { at: last.at, result: last.result, by: last.by, note: last.note || "" } : null,
       check: check ? { at: check.at, result: check.result } : null,
       manual: a.manual !== false,
+      queued: queued.includes(id),
     });
   }
   // Sonderfall: tägliche Rezept-Statistik der Slack-Brücke (kein Agent, nur eine Uhrzeit)
@@ -189,6 +218,16 @@ export function startWeb() {
           writeEntry(id, list.join("; "));
         } else return send(res, 400, { error: "Unbekannte Aktion" });
         console.log(`[web] Zeitplan ${id} → ${mode === "slots" ? slots.join("; ") : mode}`);
+        return send(res, 200, overview());
+      }
+      const run = /^\/api\/run\/([\w.-]+)$/.exec(url.pathname);
+      if (req.method === "POST" && run) {
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        const id = run[1];
+        if (!agentIds().includes(id)) return send(res, 404, { error: `Agent „${id}“ gibt es nicht` });
+        if (loadAgent(id).manual === false) return send(res, 400, { error: "Dieser Agent startet nicht von Hand" });
+        if (!queued.includes(id) && !readStatus(id, "status.json")?.running) queued.push(id);
+        console.log(`[web] ${id} von Hand angefordert`);
         return send(res, 200, overview());
       }
       send(res, 404, { error: "Nicht gefunden" });

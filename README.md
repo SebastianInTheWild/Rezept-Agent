@@ -1,6 +1,6 @@
 # Rezept-Agent
 
-Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Entstanden aus einem Agenten-Projekt für Home Assistant, die Git-Historie ist erhalten. Home Assistant ist hier nur optional.
+Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Die Steuerung läuft über Slack und eine eigene Weboberfläche.
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
@@ -24,7 +24,7 @@ Fehlen Bilder, erzeugt der Container KI-Fotos über Cloudflare Workers AI (koste
   npm/            Claude Code (installiert sich beim ersten Start selbst)
 ```
 
-Die Zeitplan-Oberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`).
+Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort.
 
 ## Zugangsdaten
 
@@ -32,9 +32,8 @@ In `geheim.env` (siehe `geheim.env.example`) bzw. als Umgebungsvariablen:
 
 - **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
 - **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.
-- **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen.
+- **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen. In den Kanal kommen auch Meldungen über fehlgeschlagene Läufe.
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional).
-- **HA_URL**, **HA_TOKEN**, **NOTIFY_SERVICE:** optional. Mit Home Assistant gibt es einen Push bei fehlgeschlagenen Läufen über einen HA-Benachrichtigungsdienst (z. B. `notify.mobile_app_handy`, mehrere kommagetrennt) und ein Dashboard mit Status und Knöpfen **Jetzt starten**. Es heißt `dashboard-rezepte` (`CONTROL_DASHBOARD`), damit es kein anderes Dashboard überschreibt. Ohne `HA_TOKEN` läuft alles andere normal.
 
 ## Einrichten mit Docker Compose
 
@@ -47,8 +46,8 @@ docker compose logs -f
 ## Bedienen
 
 ```sh
-docker compose exec agents node /app/scheduler.mjs list
-docker compose exec agents node /app/scheduler.mjs run rezept-qualitaet
+docker compose exec rezept-agent node /app/scheduler.mjs list
+docker compose exec rezept-agent node /app/scheduler.mjs run rezept-qualitaet
 ```
 
 ## Lizenz
