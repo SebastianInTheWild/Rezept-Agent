@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+// Slack-Brücke für die Rezepte: Links und Fotos im Kanal → Agent „rezepte“ legt einen Entwurf an.
+// Antwort im Thread eines Vorschlags → Agent überarbeitet den Entwurf. Knöpfe → übernehmen/verwerfen (ohne Claude).
+// Freigabe: nur Nachrichten aus SLACK_CHANNEL; wer im Kanal ist, darf schicken und bestätigen.
+// Autor: SebastianInTheWild · MIT-Lizenz
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { runAgent } from "./run-agent.mjs";
+import { socket, post, update, react, unreact, download, linksIn, plain, link } from "./lib/slack.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup } from "./lib/rezepte.mjs";
+
+const AGENT = process.env.REZEPT_AGENT || "rezepte";
+const JOBS = join(REZEPTE, "auftraege");
+const INBOX = join(REZEPTE, "inbox");
+const log = (m) => console.log(`[${new Date().toLocaleString("de-DE")}] [slack] ${m}`);
+const HELP = "Schick mir einen Link zu einem Rezept oder ein Foto (Kochbuchseite, Screenshot, Zettel). Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.";
+
+mkdirSync(JOBS, { recursive: true });
+mkdirSync(INBOX, { recursive: true });
+
+const seen = new Set();
+const queue = [];
+let working = false;
+let warnedChannel = "";
+
+async function onEvent(e) {
+  if (e.type !== "message" && e.type !== "app_mention") return;
+  if (e.bot_id || !e.user || (e.subtype && e.subtype !== "file_share")) return;
+  if (seen.has(e.ts)) return; // Erwähnungen kommen als message und app_mention
+  seen.add(e.ts);
+  if (seen.size > 500) seen.delete(seen.values().next().value);
+
+  if (!CHANNEL()) {
+    if (warnedChannel !== e.channel) log(`Nachricht aus Kanal ${e.channel} – zum Freigeben SLACK_CHANNEL=${e.channel} in geheim.env eintragen und Container neu starten`);
+    warnedChannel = e.channel;
+    return;
+  }
+  if (e.channel !== CHANNEL()) return;
+  const text = e.text || "";
+
+  // Antwort in einem Thread: Änderungswunsch zu einem Vorschlag
+  if (e.thread_ts && e.thread_ts !== e.ts) {
+    const p = proposalByThread(e.thread_ts);
+    if (!p) return;
+    if (p.status !== "open") return post(e.channel, "Dieser Vorschlag ist schon erledigt. Für Neues schick mir einfach einen Link oder ein Foto im Kanal.", undefined, e.thread_ts);
+    return enqueue({ kind: "revise", proposal: p.id, text: plain(text), channel: e.channel, ts: e.ts, thread_ts: e.thread_ts, user: e.user });
+  }
+
+  const urls = linksIn(text);
+  const files = (e.files || []).filter((f) => /^image\//.test(f.mimetype || ""));
+  if (!urls.length && !files.length) return post(e.channel, HELP, undefined, e.ts);
+  const images = [];
+  for (const [n, f] of files.entries()) {
+    const path = join(INBOX, `${e.ts.replace(".", "-")}-${n + 1}.${(f.filetype || "jpg").replace(/[^a-z0-9]/gi, "")}`);
+    writeFileSync(path, await download(f.url_private_download || f.url_private));
+    images.push(path);
+  }
+  enqueue({ kind: "import", urls, images, text: plain(text), channel: e.channel, ts: e.ts, user: e.user });
+}
+
+function enqueue(job) {
+  const file = join(JOBS, `${job.ts.replace(".", "-")}.json`);
+  writeFileSync(file, JSON.stringify({ ...job, created: new Date().toISOString() }, null, 1));
+  queue.push({ file, job });
+  react(job.channel, job.ts, "eyes");
+  log(`Auftrag ${job.kind} von ${job.user}${queue.length > 1 ? ` (Warteschlange: ${queue.length})` : ""}`);
+  work();
+}
+
+async function work() {
+  if (working) return;
+  working = true;
+  try {
+    while (queue.length) {
+      const { file, job } = queue.shift();
+      process.env.REZEPT_JOB = file;
+      const code = await runAgent(AGENT, { by: "slack" }).catch((e) => (log(e.stack || e), -1));
+      delete process.env.REZEPT_JOB;
+      const done = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      await unreact(job.channel, job.ts, "eyes");
+      if (done.result) await react(job.channel, job.ts, "white_check_mark");
+      else {
+        await react(job.channel, job.ts, "x");
+        if (!done.replied) await post(job.channel, `Das hat leider nicht geklappt${code ? ` (Code ${code})` : ""}. Details stehen im Log unter daten/${AGENT}/logs.`, undefined, job.thread_ts || job.ts);
+      }
+    }
+  } finally {
+    working = false;
+  }
+}
+
+// Knöpfe an einem Vorschlag
+async function onAction(payload) {
+  if (payload.type !== "block_actions") return;
+  const a = payload.actions?.[0];
+  if (!a?.action_id?.startsWith("rz_")) return;
+  const channel = payload.channel?.id;
+  if (channel !== CHANNEL()) return;
+  const user = payload.user?.id;
+  const { ts, blocks = [] } = payload.message;
+  const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
+  await update(channel, ts, payload.message.text, withStatus("⏳ Einen Moment …", false));
+  try {
+    let text;
+    if (a.action_id === "rz_apply") {
+      const r = await applyProposal(a.value, user);
+      text = `✅ Übernommen von <@${user}> → ${link(r.url, r.name)}`;
+    } else {
+      const skip = a.action_id === "rz_skip";
+      await rejectProposal(a.value, user, { skip });
+      text = skip ? `🚫 <@${user}>: nicht bearbeiten – das Rezept bleibt, wie es ist.` : `🗑️ Verworfen von <@${user}> – Entwurf gelöscht.`;
+    }
+    await update(channel, ts, payload.message.text, withStatus(text, false));
+    log(`${a.action_id} ${a.value} von ${user}`);
+  } catch (e) {
+    const stillOpen = loadStore().proposals[a.value]?.status === "open";
+    await update(channel, ts, payload.message.text, withStatus(`⚠️ ${e.message}`, stillOpen));
+    log(`Fehler bei ${a.action_id} ${a.value}: ${e.message}`);
+  }
+}
+
+if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
+  log("SLACK_APP_TOKEN/SLACK_BOT_TOKEN fehlen – Slack-Brücke startet nicht");
+  process.exit(0);
+}
+log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agent ${AGENT})`);
+socket({ onEvent, onAction, log });
+
+// Einmal täglich alte Dateien wegräumen (Fotos, Eingänge, Aufträge nach 30 Tagen, Sicherungen nach 180 Tagen)
+const tidy = () => {
+  try {
+    const r = cleanup();
+    if (Object.keys(r).length) log(`Aufgeräumt: ${Object.entries(r).map(([d, n]) => `${n} in ${d}`).join(", ")}`);
+  } catch (e) {
+    log(`Aufräumen fehlgeschlagen: ${e.message}`);
+  }
+};
+tidy();
+setInterval(tidy, 86_400_000);

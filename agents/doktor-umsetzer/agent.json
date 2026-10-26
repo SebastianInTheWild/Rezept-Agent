@@ -1,0 +1,18 @@
+{
+  "name": "Doktor-Umsetzer",
+  "description": "Prüft im Dashboard „Automations-Doktor“ freigegebene Empfehlungen und übernimmt sie in die Automation (mit Sicherung) oder lehnt sie begründet ab.",
+  "icon": "mdi:wrench-check",
+  "enabled": true,
+  "schedule": [
+    "alle 5 min"
+  ],
+  "precheck": "node ha.mjs fixes pending --count",
+  "allowedTools": [
+    "Bash(node ha.mjs fixes pending)",
+    "Bash(node ha.mjs fixes apply:*)",
+    "Bash(node ha.mjs fixes reject:*)",
+    "Bash(node ha.mjs fixes finish)",
+    "Bash(node ha.mjs states:*)"
+  ],
+  "maxTurns": 20
+}

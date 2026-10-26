@@ -1,0 +1,15 @@
+services:
+  agents:
+    build: .
+    image: ha-unser-zuhause-agents
+    container_name: ha-unser-zuhause-agents
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Agenten liegen auf dem Host: neue Ordner oder Änderungen gelten ohne Neubau
+      - ./agents:/agents:ro
+      # Merkliste, Sicherungen und Logs
+      - agents-data:/data
+
+volumes:
+  agents-data:

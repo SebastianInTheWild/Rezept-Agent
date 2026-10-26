@@ -1,0 +1,20 @@
+{
+  "name": "Energie-Coach",
+  "description": "Wertet die letzten 7 Tage (PV, Akku, Netz, Geräte) aus und gibt 1–2 konkrete Tipps.",
+  "icon": "mdi:lightning-bolt",
+  "enabled": true,
+  "schedule": [
+    "So 18:00"
+  ],
+  "env": {
+    "ENERGY_ACTIVITY": "binary_sensor.trockner_running,sensor.bosch_dishwasher_betriebszustand,binary_sensor.heizung_kompressor,binary_sensor.evcc_hamm_charging"
+  },
+  "allowedTools": [
+    "Bash(node ha.mjs energy week)",
+    "Bash(node ha.mjs energy report)",
+    "Bash(node ha.mjs states:*)",
+    "Edit(/{{DATA}}/report.json)",
+    "Read(/{{DATA}}/report.json)"
+  ],
+  "maxTurns": 20
+}

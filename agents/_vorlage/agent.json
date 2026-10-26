@@ -1,0 +1,12 @@
+{
+  "name": "Mein Agent",
+  "description": "Was der Agent tut – Ordner kopieren, umbenennen (ohne _ am Anfang) und anpassen.",
+  "enabled": false,
+  "schedule": ["07:30"],
+  "precheck": "",
+  "allowedTools": [
+    "Bash(node ha.mjs states:*)",
+    "Bash(node ha.mjs notify:*)"
+  ],
+  "maxTurns": 20
+}

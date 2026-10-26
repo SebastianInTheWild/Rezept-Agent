@@ -1,0 +1,18 @@
+{
+  "name": "Rezept-Qualität",
+  "description": "Prüft Rezepte ohne Status-Schlagwort gegen unseren Standard und schickt Verbesserungen als Vorschlag in Slack.",
+  "icon": "mdi:clipboard-check-outline",
+  "enabled": true,
+  "schedule": ["10:00"],
+  "precheck": "node tandoor.mjs pending --count",
+  "allowedTools": [
+    "Bash(node tandoor.mjs pending)",
+    "Bash(node tandoor.mjs context)",
+    "Bash(node tandoor.mjs recipe:*)",
+    "Bash(node tandoor.mjs propose)",
+    "Edit(/{{DATA}}/entwurf.json)",
+    "Read(/{{DATA}}/entwurf.json)"
+  ],
+  "env": { "REZEPT_BATCH": "3", "REZEPT_MAX_OFFEN": "6" },
+  "maxTurns": 60
+}

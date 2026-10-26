@@ -1,0 +1,20 @@
+{
+  "name": "Automationen sortieren",
+  "description": "Gibt neuen Automationen einen sprechenden Namen, eine Beschreibung, Labels und eine Kategorie.",
+  "icon": "mdi:sort-variant",
+  "enabled": true,
+  "schedule": [
+    "08:00"
+  ],
+  "init": "node ha.mjs automations init",
+  "precheck": "node ha.mjs automations pending --count",
+  "allowedTools": [
+    "Bash(node ha.mjs automations context)",
+    "Bash(node ha.mjs automations pending)",
+    "Bash(node ha.mjs automations apply)",
+    "Bash(node ha.mjs states:*)",
+    "Edit(/{{DATA}}/plan.json)",
+    "Read(/{{DATA}}/plan.json)"
+  ],
+  "maxTurns": 30
+}

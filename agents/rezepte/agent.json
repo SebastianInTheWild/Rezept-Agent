@@ -1,0 +1,22 @@
+{
+  "name": "Rezepte (Slack)",
+  "description": "Legt aus Links und Fotos aus Slack Rezept-Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Wird von der Slack-Brücke gestartet, nicht nach Zeitplan.",
+  "icon": "mdi:chef-hat",
+  "enabled": true,
+  "manual": false,
+  "schedule": [],
+  "allowedTools": [
+    "Bash(node tandoor.mjs job)",
+    "Bash(node tandoor.mjs context)",
+    "Bash(node tandoor.mjs fetch-url)",
+    "Bash(node tandoor.mjs fetch-url:*)",
+    "Bash(node tandoor.mjs search:*)",
+    "Bash(node tandoor.mjs recipe:*)",
+    "Bash(node tandoor.mjs propose)",
+    "Bash(node tandoor.mjs reply:*)",
+    "Edit(/{{DATA}}/entwurf.json)",
+    "Read(/{{DATA}}/entwurf.json)",
+    "Read(/{{DATA}}/inbox/**)"
+  ],
+  "maxTurns": 40
+}

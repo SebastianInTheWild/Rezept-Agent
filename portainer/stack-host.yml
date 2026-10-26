@@ -1,0 +1,32 @@
+# Unser Zuhause – Agenten, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
+#
+#   /home/sebastian/docker/agents/
+#     zeitplan.conf   Wann welcher Agent läuft (Änderungen gelten ohne Neustart)
+#     agents/         Ein Ordner je Agent (agent.json + prompt.md), _vorlage zum Kopieren
+#     app/            Programm (Zeitplan, Werkzeuge)
+#     daten/          Merklisten, Logs und Sicherungen je Agent
+#     npm/            Claude Code (installiert sich beim ersten Start selbst)
+#
+# Der Container läuft als Benutzer 1000 (Besitzer von /home/sebastian/docker), damit du alle Dateien ohne sudo bearbeiten kannst.
+services:
+  agents:
+    image: node:22-bookworm-slim
+    container_name: agents
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /data/app
+    command: ["sh", "/data/app/start.sh"]
+    environment:
+      HA_URL: ${HA_URL:-http://192.168.11.252:8123}
+      HA_TOKEN: ${HA_TOKEN:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      NOTIFY_PERSONS: ${NOTIFY_PERSONS:-person.sebastian}
+      SKIP_LABEL: ${SKIP_LABEL:-Test}
+      TZ: ${TZ:-Europe/Berlin}
+      AGENTS_DIR: /data/agents
+      DATA_DIR: /data/daten
+      SCHEDULE_FILE: /data/zeitplan.conf
+      DISABLE_AUTOUPDATER: "1"
+    volumes:
+      - ${AGENTS_HOST_DIR:-/home/sebastian/docker/agents}:/data
