@@ -1,4 +1,4 @@
-# Unser Zuhause – Rezepte, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
+# Rezept-Agent, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
 #
 #   /home/sebastian/docker/rezepte/
 #     zeitplan.conf   Wann welcher Agent läuft (Änderungen gelten ohne Neustart)
@@ -21,7 +21,7 @@ services:
       HA_TOKEN: ${HA_TOKEN:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
-      NOTIFY_PERSONS: ${NOTIFY_PERSONS:-person.sebastian}
+      NOTIFY_SERVICE: ${NOTIFY_SERVICE:-}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten

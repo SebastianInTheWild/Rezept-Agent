@@ -50,14 +50,11 @@ export async function connect() {
   return call;
 }
 
-/** Push über die Integration „Unser Zuhause“ an Personen (NOTIFY_PERSONS, kommagetrennt). */
+/** Push über HA-Benachrichtigungsdienste (NOTIFY_SERVICE, kommagetrennt, z. B. notify.mobile_app_handy). */
 export async function notify(call, title, message) {
-  const persons = (process.env.NOTIFY_PERSONS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!persons.length) return;
-  await call({
-    type: "call_service",
-    domain: "unser_zuhause",
-    service: "notify",
-    service_data: { persons, title, message },
-  });
+  const services = (process.env.NOTIFY_SERVICE || "").split(",").map((s) => s.trim()).filter(Boolean);
+  for (const s of services) {
+    const [domain, service] = s.includes(".") ? s.split(".", 2) : ["notify", s];
+    await call({ type: "call_service", domain, service, service_data: { title, message } });
+  }
 }

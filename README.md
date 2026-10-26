@@ -1,6 +1,6 @@
-# Unser Zuhause – Rezepte
+# Rezept-Agent
 
-Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Herausgelöst aus [ha-unser-zuhause-agents](https://github.com/SebastianInTheWild/ha-unser-zuhause-agents); die Git-Historie ist erhalten.
+Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Entstanden aus einem Agenten-Projekt für Home Assistant, die Git-Historie ist erhalten. Home Assistant ist hier nur optional.
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
@@ -34,7 +34,7 @@ In `geheim.env` (siehe `geheim.env.example`) bzw. als Umgebungsvariablen:
 - **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.
 - **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen.
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional).
-- **HA_URL**, **HA_TOKEN**, **NOTIFY_PERSONS:** optional. Damit gibt es einen Push bei fehlgeschlagenen Läufen und die Knöpfe in einem Home-Assistant-Dashboard. `CONTROL_DASHBOARD` steht in den Vorlagen auf `dashboard-rezepte`, damit es das Dashboard des Add-ons „Unser Zuhause – Agenten“ nicht überschreibt.
+- **HA_URL**, **HA_TOKEN**, **NOTIFY_SERVICE:** optional. Mit Home Assistant gibt es einen Push bei fehlgeschlagenen Läufen über einen HA-Benachrichtigungsdienst (z. B. `notify.mobile_app_handy`, mehrere kommagetrennt) und ein Dashboard mit Status und Knöpfen **Jetzt starten**. Es heißt `dashboard-rezepte` (`CONTROL_DASHBOARD`), damit es kein anderes Dashboard überschreibt. Ohne `HA_TOKEN` läuft alles andere normal.
 
 ## Einrichten mit Docker Compose
 

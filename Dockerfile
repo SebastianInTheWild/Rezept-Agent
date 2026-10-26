@@ -1,4 +1,4 @@
-# Unser Zuhause – Rezepte: Claude Code ohne Bildschirm für Tandoor-Rezepte (Slack, Qualitätsprüfung)
+# Rezept-Agent: Claude Code ohne Bildschirm für Tandoor-Rezepte (Slack, Qualitätsprüfung)
 # Autor: SebastianInTheWild · MIT-Lizenz
 FROM node:22-bookworm-slim
 
