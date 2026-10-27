@@ -1,6 +1,6 @@
 # Rezept-Agent: Claude Code ohne Bildschirm für Tandoor-Rezepte (Slack, Qualitätsprüfung)
 # Autor: SebastianInTheWild · MIT-Lizenz
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tzdata ca-certificates \

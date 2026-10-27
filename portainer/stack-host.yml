@@ -10,7 +10,7 @@
 # Der Container läuft als Benutzer 1000 (Besitzer von /home/sebastian/docker), damit du alle Dateien ohne sudo bearbeiten kannst.
 services:
   agents:
-    image: node:22-bookworm-slim
+    image: node:26-bookworm-slim
     container_name: rezepte
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -49,8 +49,8 @@ services:
       homepage.icon: mdi-chef-hat
       homepage.href: https://${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
       homepage.description: Recipe agents for Tandoor (Slack bridge, quality check)
-      # What's Up Docker: nur neue Builds von node:22 einspielen, nicht auf node:26 usw. springen
-      wud.tag.include: "^22-bookworm-slim$"
+      # What's Up Docker: nur neue Builds von node:26 einspielen, nicht automatisch auf die nächste Hauptversion springen
+      wud.tag.include: "^26-bookworm-slim$"
       wud.watch.digest: "true"
     networks:
       - ProxyNetwork
