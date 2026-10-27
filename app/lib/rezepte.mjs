@@ -58,8 +58,20 @@ export function setPerDay(value) {
   mkdirSync(REZEPTE, { recursive: true });
   writeFileSync(SETTINGS, JSON.stringify({ ...readSettings(), pro_tag: n }, null, 1));
 }
+// Zusätzliche Rezepte nur für heute (Slack „/pruefen <Anzahl>“): { extra: { tag: "2026-10-27", anzahl: 3 } }
+const extraToday = () => {
+  const e = readSettings().extra;
+  return e && e.tag === today() ? Number(e.anzahl) || 0 : 0;
+};
+/** Erlaubt heute n Rezepte zusätzlich zum Tageswert. */
+export function addToday(n) {
+  if (!Number.isInteger(n) || n < 1 || n > PER_DAY_MAX) throw new Error(`Bitte eine ganze Zahl von 1 bis ${PER_DAY_MAX}`);
+  const anzahl = Math.min(PER_DAY_MAX, extraToday() + n);
+  mkdirSync(REZEPTE, { recursive: true });
+  writeFileSync(SETTINGS, JSON.stringify({ ...readSettings(), extra: { tag: today(), anzahl } }, null, 1));
+}
 // Höchstens so viele Qualitäts-Vorschläge gleichzeitig offen in Slack (Standard: zwei Tagesportionen)
-const maxOpen = () => Number(process.env.REZEPT_MAX_OFFEN) || Math.max(1, 2 * perDay().value);
+const maxOpen = () => Number(process.env.REZEPT_MAX_OFFEN) || Math.max(1, 2 * (perDay().value + extraToday()));
 
 const today = (now = new Date()) => now.toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" });
 const sameDay = (iso, now) => Boolean(iso) && today(new Date(iso)) === today(now);
@@ -89,8 +101,9 @@ export async function pending() {
   const open = Object.values(store.proposals).filter((p) => p.status === "open");
   const busy = new Set(open.map((p) => p.original_id).filter(Boolean));
   // Tageslimit gilt über alle Läufe eines Tages (Zeitplan und „Jetzt starten“ zusammen)
-  const leftToday = Math.max(0, perDay().value - proposedToday(store));
-  const free = Math.max(0, maxOpen() - open.filter((p) => p.kind === "quality").length);
+  const leftToday = Math.max(0, perDay().value + extraToday() - proposedToday(store));
+  const openQuality = open.filter((p) => p.kind === "quality").length;
+  const free = Math.max(0, maxOpen() - openQuality);
   const later = (a, b) => b && Date.parse(a) - Date.parse(b) > 120_000;
   const list = (await all("/api/recipe/"))
     .filter((r) => !r.name.startsWith(DRAFT_PREFIX) && !busy.has(r.id))
@@ -102,7 +115,7 @@ export async function pending() {
       return true;
     })
     .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-  return { total: list.length, open_proposals: open.length, batch: list.slice(0, Math.min(leftToday, free)) };
+  return { total: list.length, open_proposals: open.length, open_quality: openQuality, left_today: leftToday, free, batch: list.slice(0, Math.min(leftToday, free)) };
 }
 
 // Statistik über alle Rezepte (ohne Entwürfe) nach Status-Schlagwort, dazu was heute entschieden wurde
@@ -146,6 +159,25 @@ export function statsMessage(s, date = new Date()) {
   if (t.proposed || t.applied || t.rejected) lines.push(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`);
   if (!s.todo && !s.open) lines.push("🎉 Alle Rezepte sind geprüft.");
   return lines.join("\n");
+}
+
+// Für Slack „/offen“: Vorschläge, die auf eine Entscheidung warten (älteste zuerst)
+export const openProposals = () =>
+  Object.values(loadStore().proposals)
+    .filter((p) => p.status === "open")
+    .sort((a, b) => Date.parse(a.created) - Date.parse(b.created));
+
+// Für Slack „/rezept <Name>“: Treffer mit Status aus den Schlagwörtern
+export async function findRecipes(q) {
+  const j = await api("GET", `/api/recipe/?query=${encodeURIComponent(q)}&page_size=10`);
+  const open = new Map(openProposals().filter((p) => p.original_id).map((p) => [p.original_id, p]));
+  return j.results
+    .filter((r) => !r.name.startsWith(DRAFT_PREFIX))
+    .map((r) => {
+      const k = kwNames(r);
+      const status = k.includes(KW.checked) ? "geprüft" : k.includes(KW.skip) ? "nicht bearbeiten" : k.includes(KW.open) || open.has(r.id) ? "Vorschlag offen" : "noch nicht geprüft";
+      return { id: r.id, name: r.name, url: recipeUrl(r.id), status, proposal: open.get(r.id) || null };
+    });
 }
 
 export async function search(q) {

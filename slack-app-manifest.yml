@@ -19,6 +19,24 @@ features:
     - command: /statistik
       description: Rezept-Statistik – gesamt, geprüft, offen, noch zu prüfen
       should_escape: false
+    - command: /offen
+      description: Vorschläge, die auf deine Entscheidung warten
+      should_escape: false
+    - command: /rezept
+      description: Rezept in Tandoor suchen, mit Status
+      usage_hint: "<Name>"
+      should_escape: false
+    - command: /pruefen
+      description: Qualitätsprüfung jetzt starten
+      usage_hint: "[Anzahl]"
+      should_escape: false
+    - command: /pro-tag
+      description: Wie viele Rezepte täglich geprüft werden
+      usage_hint: "[Anzahl]"
+      should_escape: false
+    - command: /hilfe
+      description: Was der Rezept-Helfer kann
+      should_escape: false
 oauth_config:
   scopes:
     bot:

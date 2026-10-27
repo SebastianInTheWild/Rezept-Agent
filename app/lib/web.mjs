@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { AGENTS_DIR, loadAgent, readStatus } from "../run-agent.mjs";
+import { AGENTS_DIR, hasStartRequest, loadAgent, readStatus, takeStartRequest } from "../run-agent.mjs";
 import { perDay, setPerDay, PER_DAY_MAX } from "./rezepte.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
@@ -109,9 +109,9 @@ async function sendStats() {
   }
 }
 
-// Von Hand angeforderte Agenten (Knopf „Jetzt starten“); der Zeitplan startet sie nacheinander
+// Von Hand angeforderte Agenten (Knopf „Jetzt starten“, Slack „/pruefen“ per Datei); der Zeitplan startet sie nacheinander
 const queued = [];
-export const takeQueued = () => queued.shift();
+export const takeQueued = () => queued.shift() || agentIds().find(takeStartRequest);
 
 function agentIds() {
   return readdirSync(AGENTS_DIR, { withFileTypes: true })
@@ -152,7 +152,7 @@ function overview() {
       last: last ? { at: last.at, result: last.result, by: last.by, note: last.note || "" } : null,
       check: check ? { at: check.at, result: check.result } : null,
       manual: a.manual !== false,
-      queued: queued.includes(id),
+      queued: queued.includes(id) || hasStartRequest(id),
       ...(id === QUALITY_ID ? { perDay: { ...perDay(), max: PER_DAY_MAX } } : {}),
     });
   }

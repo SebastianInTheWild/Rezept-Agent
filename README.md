@@ -27,7 +27,17 @@ Neue oder geänderte Agenten pushst du einfach nach GitHub (`agents/<name>/agent
 
 Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
 
-Slash-Befehle in Slack: `/statistik` zeigt die Rezept-Statistik, `/neuronen` die heute noch freien Cloudflare-Neuronen (Antwort nur für dich sichtbar).
+Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen` und `/pro-tag <Zahl>` nur im Rezept-Kanal):
+
+| Befehl | Was er macht |
+| --- | --- |
+| `/statistik` | Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen |
+| `/offen` | Vorschläge, die auf eine Entscheidung warten, mit Link |
+| `/rezept <Name>` | Rezept in Tandoor suchen, mit Status |
+| `/pruefen [Anzahl]` | Qualitätsprüfung jetzt starten; mit Anzahl darf er heute so viele Rezepte zusätzlich zum Tageswert prüfen |
+| `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
+| `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
+| `/hilfe` | Übersicht |
 
 ## Zugangsdaten
 

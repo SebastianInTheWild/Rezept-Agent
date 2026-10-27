@@ -33,6 +33,17 @@ const writeStatus = (id, name, data) => {
     writeFileSync(statusFile(id, name), JSON.stringify(data));
   } catch {}
 };
+// Startwunsch aus einem anderen Prozess (Slack-Brücke „/pruefen“): Datei im Datenordner, der Zeitplan startet den Agenten
+export const requestStart = (id, by) => {
+  mkdirSync(join(DATA_DIR, id), { recursive: true });
+  writeFileSync(statusFile(id, "start-anfrage.json"), JSON.stringify({ at: new Date().toISOString(), by }));
+};
+export const hasStartRequest = (id) => existsSync(statusFile(id, "start-anfrage.json"));
+export const takeStartRequest = (id) => {
+  if (!hasStartRequest(id)) return false;
+  rmSync(statusFile(id, "start-anfrage.json"), { force: true });
+  return true;
+};
 /** Läuft-Markierungen von einem abgebrochenen Prozess entfernen (beim Start des Schedulers). */
 export function clearRunning(ids) {
   for (const id of ids) rmSync(statusFile(id, "status.json"), { force: true });

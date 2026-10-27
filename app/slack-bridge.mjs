@@ -6,10 +6,10 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { runAgent } from "./run-agent.mjs";
-import { socket, post, update, react, unreact, download, linksIn, plain, link, respond } from "./lib/slack.mjs";
+import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
+import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { neurons, neuronsText } from "./lib/bild.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
@@ -126,23 +126,100 @@ if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
   process.exit(0);
 }
 log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agent ${AGENT})`);
-// Slash-Befehle (im Manifest angelegt): /neuronen = heute noch freie Cloudflare-Neuronen für KI-Fotos,
-// /statistik = Rezept-Statistik wie die tägliche Nachricht (nur für den Fragenden sichtbar)
+// Slash-Befehle (im Manifest angelegt). Antworten sind nur für den Fragenden sichtbar.
+// Ändernde Befehle (/pruefen, /pro-tag mit Zahl) nur im Rezept-Kanal – wer dort ist, darf auch bestätigen.
+const QUALITY = process.env.REZEPT_QUALITAET_AGENT || "rezept-qualitaet";
+const COMMANDS = [
+  ["/statistik", "Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen"],
+  ["/offen", "Vorschläge, die auf deine Entscheidung warten – mit Link"],
+  ["/rezept <Name>", "Rezept in Tandoor suchen, mit Status"],
+  ["/pruefen [Anzahl]", "Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)"],
+  ["/pro-tag [Anzahl]", "Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern"],
+  ["/neuronen", "Heute noch freie Cloudflare-Neuronen für KI-Fotos"],
+  ["/hilfe", "Diese Übersicht"],
+];
+const helpText = () => [`*Rezept-Helfer* – ${HELP}`, "", ...COMMANDS.map(([c, d]) => `• \`${c}\` – ${d}`)].join("\n");
+
 // Das Free-Kontingent beginnt um 00:00 UTC neu – hier in Ortszeit
 const resetTime = () => {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toLocaleTimeString("de-DE", { timeZone: process.env.TZ || "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
 };
+const ago = (iso) => {
+  const h = Math.floor((Date.now() - Date.parse(iso)) / 3_600_000);
+  const d = Math.floor(h / 24);
+  return h < 1 ? "gerade eben" : h < 24 ? `vor ${h} Std.` : `vor ${d} ${d === 1 ? "Tag" : "Tagen"}`;
+};
+const permalink = (p) =>
+  p?.slack ? slack("chat.getPermalink", { channel: p.slack.channel, message_ts: p.slack.last_ts || p.slack.thread_ts }).then((r) => r.permalink, () => "") : Promise.resolve("");
+const inChannel = (c) => c.channel_id === CHANNEL();
+const notInChannel = () => `Das geht nur im Rezept-Kanal <#${CHANNEL()}>.`;
+const rezepte = (n) => `${n} ${n === 1 ? "Rezept" : "Rezepte"}`;
+
+const commands = {
+  "/hilfe": async () => helpText(),
+  "/statistik": async () => statsMessage(await stats()),
+  "/neuronen": async () => neurons().then((n) => `🧠 Cloudflare Workers AI: ${neuronsText(n)}. Das Kontingent beginnt um ${resetTime()} Uhr neu.`, (e) => `Neuronen nicht abrufbar: ${e.message}`),
+
+  "/offen": async () => {
+    const list = openProposals();
+    if (!list.length) return "✅ Keine offenen Vorschläge – alles entschieden.";
+    const shown = list.slice(0, 20);
+    const links = await Promise.all(shown.map(permalink));
+    const lines = shown.map((p, i) => `• ${links[i] ? link(links[i], p.name) : esc(p.name)} · ${p.kind === "quality" ? "Qualität" : "Import"} · ${ago(p.created)}`);
+    if (list.length > shown.length) lines.push(`… und ${list.length - shown.length} weitere`);
+    return [`⏳ *${list.length} ${list.length === 1 ? "Vorschlag wartet" : "Vorschläge warten"} auf dich*`, ...lines].join("\n");
+  },
+
+  "/rezept": async (c) => {
+    const q = c.text.trim();
+    if (!q) return "Wonach soll ich suchen? Beispiel: `/rezept Rahmwirsing`";
+    const hits = await findRecipes(q);
+    if (!hits.length) return `Kein Rezept zu „${esc(q)}“ gefunden.`;
+    const icon = { "geprüft": "✅", "nicht bearbeiten": "🚫", "Vorschlag offen": "⏳", "noch nicht geprüft": "📝" };
+    const links = await Promise.all(hits.map((h) => permalink(h.proposal)));
+    const lines = hits.map((h, i) => `• ${icon[h.status]} ${link(h.url, h.name)} · ${h.status}${links[i] ? ` · ${link(links[i], "zum Vorschlag")}` : ""}`);
+    return [`🔎 *${hits.length} Treffer* zu „${esc(q)}“`, ...lines].join("\n");
+  },
+
+  "/pro-tag": async (c) => {
+    const arg = c.text.trim();
+    if (!arg) {
+      const p = perDay();
+      return `📅 Rezept-Qualität prüft *${rezepte(p.value)}* pro Tag${p.source === "Weboberfläche" ? "" : ` (${p.source})`}. Ändern: \`/pro-tag 8\``;
+    }
+    if (!inChannel(c)) return notInChannel();
+    if (!/^\d+$/.test(arg)) return "Bitte nur eine Zahl angeben, z. B. `/pro-tag 8`.";
+    setPerDay(Number(arg));
+    log(`/pro-tag ${arg} von ${c.user_id}`);
+    return `📅 Ab jetzt prüft Rezept-Qualität *${rezepte(Number(arg))}* pro Tag.`;
+  },
+
+  "/pruefen": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    const arg = c.text.trim();
+    if (arg && !/^\d+$/.test(arg)) return "Bitte nur eine Zahl angeben, z. B. `/pruefen 3`.";
+    if (readStatus(QUALITY, "status.json")?.running) return "⏳ Die Qualitätsprüfung läuft gerade schon.";
+    if (hasStartRequest(QUALITY)) return "⏳ Die Qualitätsprüfung startet gleich schon.";
+    if (arg) addToday(Number(arg));
+    const p = await pending();
+    if (!p.batch.length) {
+      if (!p.total) return "🎉 Es gibt gerade nichts zu prüfen.";
+      if (!p.free) return `⏳ Es warten schon ${p.open_quality} Qualitäts-Vorschläge auf dich. Entscheide erst ein paar (\`/offen\`), dann geht es weiter.`;
+      return "📅 Das Tageslimit ist erreicht. Mit `/pruefen 3` prüft der Agent jetzt noch 3 weitere Rezepte.";
+    }
+    requestStart(QUALITY, "slack");
+    log(`/pruefen ${arg} von ${c.user_id} → ${p.batch.length} Rezepte`);
+    return `🔍 Die Qualitätsprüfung startet in spätestens 30 Sekunden mit ${rezepte(p.batch.length)}. Die Vorschläge erscheinen im Kanal.`;
+  },
+};
+
 async function onCommand(c) {
-  if (c.command === "/statistik") {
-    const text = await stats().then((s) => statsMessage(s), (e) => `Statistik nicht abrufbar: ${e.message}`);
-    await respond(c.response_url, text);
-    return log(`/statistik von ${c.user_id}`);
-  }
-  if (c.command !== "/neuronen") return respond(c.response_url, `Unbekannter Befehl ${c.command}`);
-  const text = await neurons().then((n) => `🧠 Cloudflare Workers AI: ${neuronsText(n)}. Das Kontingent beginnt um ${resetTime()} Uhr neu.`, (e) => `Neuronen nicht abrufbar: ${e.message}`);
+  const run = commands[c.command];
+  if (!run) return respond(c.response_url, `Unbekannter Befehl ${c.command}. \`/hilfe\` zeigt alle Befehle.`);
+  const text = await run({ ...c, text: c.text || "" }).catch((e) => `⚠️ ${e.message}`);
   await respond(c.response_url, text);
-  log(`/neuronen von ${c.user_id}`);
+  if (!["/pro-tag", "/pruefen"].includes(c.command)) log(`${c.command} von ${c.user_id}`);
 }
 
 socket({ onEvent, onAction, onCommand, log });
