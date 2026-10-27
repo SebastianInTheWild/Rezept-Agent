@@ -49,6 +49,9 @@ services:
       homepage.icon: mdi-chef-hat
       homepage.href: https://${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
       homepage.description: Recipe agents for Tandoor (Slack bridge, quality check)
+      # What's Up Docker: nur neue Builds von node:22 einspielen, nicht auf node:26 usw. springen
+      wud.tag.include: "^22-bookworm-slim$"
+      wud.watch.digest: "true"
     networks:
       - ProxyNetwork
     volumes:
