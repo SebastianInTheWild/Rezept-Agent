@@ -35,8 +35,12 @@ const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").r
 export const link = (url, text) => `<${url}|${esc(text).replace(/\|/g, "¦")}>`;
 export { esc };
 
-// Socket Mode: hält die Verbindung, quittiert jede Nachricht und meldet Ereignisse und Knopfdrücke.
-export function socket({ onEvent, onAction, log = console.log }) {
+// Antwort auf einen Slash-Befehl (nur für den Fragenden sichtbar)
+export const respond = (responseUrl, text) =>
+  fetch(responseUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ response_type: "ephemeral", text }) });
+
+// Socket Mode: hält die Verbindung, quittiert jede Nachricht und meldet Ereignisse, Knopfdrücke und Slash-Befehle.
+export function socket({ onEvent, onAction, onCommand, log = console.log }) {
   let stopped = false;
   let retry = 1;
   const connect = async () => {
@@ -63,6 +67,7 @@ export function socket({ onEvent, onAction, log = console.log }) {
       try {
         if (m.type === "events_api") await onEvent(m.payload.event);
         else if (m.type === "interactive") await onAction(m.payload);
+        else if (m.type === "slash_commands" && onCommand) await onCommand(m.payload);
         else if (m.type === "disconnect") ws.close();
       } catch (e) {
         log(`Fehler bei Slack-Ereignis: ${e.stack || e}`);

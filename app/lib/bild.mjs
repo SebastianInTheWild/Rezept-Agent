@@ -2,6 +2,7 @@
 // Standard: Cloudflare Workers AI (kostenlos im Free-Plan, 10.000 Neurons/Tag) mit FLUX.2 Klein 9B, Ersatz FLUX.1 Schnell.
 // Optional: OpenAI (kostenpflichtig) mit BILD_ANBIETER=openai.
 // Umgebungsvariablen: CF_ACCOUNT_ID, CF_AI_TOKEN | OPENAI_API_KEY; optional BILD_ANBIETER, BILD_MODELL, BILD_QUALITAET, BILD_PRO_TAG (Standard 10).
+// Verbrauchte Neuronen: Cloudflare-GraphQL (Token braucht zusätzlich „Account Analytics: Read“), Kontingent CF_NEURONEN_PRO_TAG (Standard 10.000).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -62,6 +63,29 @@ async function cloudflare(prompt) {
     }
   }
 }
+
+// Heute verbrauchte Neuronen laut Cloudflare (das Free-Kontingent zählt ab 00:00 UTC; die Zahlen kommen mit etwa einer Minute Verzug)
+export async function neurons() {
+  if (!cloudflareReady()) throw new Error("Cloudflare ist nicht eingerichtet (CF_ACCOUNT_ID, CF_AI_TOKEN)");
+  const query = "query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a}){aiInferenceAdaptiveGroups(limit:100,filter:{date_geq:$d}){sum{totalNeurons} count}}}}";
+  const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.CF_AI_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables: { a: process.env.CF_ACCOUNT_ID, d: new Date().toISOString().slice(0, 10) } }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (j.errors?.length || !j.data) {
+    const msg = j.errors?.map((e) => e.message).join("; ") || `HTTP ${r.status}`;
+    throw new Error(/not authorized/i.test(msg) ? "der Cloudflare-Token darf die Nutzung nicht lesen – Berechtigung „Account Analytics: Read“ ergänzen" : `Cloudflare: ${msg}`);
+  }
+  const groups = j.data.viewer?.accounts?.[0]?.aiInferenceAdaptiveGroups || [];
+  const used = Math.round(groups.reduce((n, g) => n + (g.sum?.totalNeurons || 0), 0));
+  const limit = Number(process.env.CF_NEURONEN_PRO_TAG || 10_000);
+  return { used, limit, free: Math.max(0, limit - used), requests: groups.reduce((n, g) => n + (g.count || 0), 0) };
+}
+
+const num = (n) => n.toLocaleString("de-DE");
+export const neuronsText = (n) => `heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`;
 
 async function openai(prompt) {
   const r = await fetch("https://api.openai.com/v1/images/generations", {

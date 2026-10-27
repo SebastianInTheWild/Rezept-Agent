@@ -1,5 +1,5 @@
 // Weboberfläche „Zeitplan“: zeigt alle Agenten aus agents/ mit Zeitplan, letztem und nächstem Lauf
-// und schreibt Änderungen nach zeitplan.conf (Kommentare und Reihenfolge bleiben erhalten). Knopf „Jetzt starten“ je Agent.
+// und schreibt Änderungen nach zeitplan.conf (Kommentare und Reihenfolge bleiben erhalten). Knopf „Jetzt starten“ je Agent, „Jetzt senden“ für die Statistik.
 // Der Zeitplan liest die Datei alle 30 s, die Slack-Brücke jede Minute – ein Neustart ist nicht nötig.
 // Port: WEB_PORT (Standard 8080, „aus“ = keine Oberfläche). Passwort: WEB_PASSWORT (optional, HTTP-Anmeldung).
 // Autor: SebastianInTheWild · MIT-Lizenz
@@ -90,6 +90,22 @@ function nextRunText(agent, nowDate = new Date()) {
   return slots.length ? "–" : "nur von Hand";
 }
 
+// Statistik von Hand („Jetzt senden“): direkt aus der Weboberfläche, unabhängig vom täglichen Versand der Slack-Brücke
+let statsSending = false;
+async function sendStats() {
+  const { stats, statsMessage, CHANNEL } = await import("./rezepte.mjs");
+  const { post, slackReady } = await import("./slack.mjs");
+  if (!slackReady() || !CHANNEL()) throw new Error("Slack ist nicht eingerichtet (SLACK_BOT_TOKEN/SLACK_CHANNEL)");
+  statsSending = true;
+  try {
+    const s = await stats();
+    await post(CHANNEL(), statsMessage(s));
+    console.log(`[web] Statistik von Hand gesendet: ${s.checked}/${s.total} geprüft, ${s.todo} noch zu prüfen`);
+  } finally {
+    statsSending = false;
+  }
+}
+
 // Von Hand angeforderte Agenten (Knopf „Jetzt starten“); der Zeitplan startet sie nacheinander
 const queued = [];
 export const takeQueued = () => queued.shift();
@@ -150,6 +166,8 @@ function overview() {
     source: STATS_ID in plan ? "zeitplan.conf" : envStats ? "REZEPT_STATISTIK" : "Standard",
     default: { schedule: [envStats || "19:00"], enabled: true },
     next: nextRunText({ schedule: statsSlots, enabled: statsSlots.length > 0 }),
+    manual: true,
+    running: statsSending,
   });
   return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", items };
 }
@@ -224,6 +242,11 @@ export function startWeb() {
       if (req.method === "POST" && run) {
         if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
         const id = run[1];
+        if (id === STATS_ID) {
+          if (statsSending) return send(res, 409, { error: "Die Statistik wird gerade gesendet" });
+          await sendStats();
+          return send(res, 200, overview());
+        }
         if (!agentIds().includes(id)) return send(res, 404, { error: `Agent „${id}“ gibt es nicht` });
         if (loadAgent(id).manual === false) return send(res, 400, { error: "Dieser Agent startet nicht von Hand" });
         if (!queued.includes(id) && !readStatus(id, "status.json")?.running) queued.push(id);

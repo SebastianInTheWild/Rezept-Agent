@@ -12,6 +12,10 @@ features:
   bot_user:
     display_name: Rezept-Helfer
     always_online: true
+  slash_commands:
+    - command: /neuronen
+      description: Wie viele Cloudflare-Neuronen für KI-Fotos heute noch frei sind
+      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -20,6 +24,7 @@ oauth_config:
       - groups:history
       - im:history
       - chat:write
+      - commands
       - files:read
       - reactions:write
       - users:read

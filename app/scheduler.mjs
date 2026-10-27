@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENTS_DIR, clearRunning, loadAgent, runAgent } from "./run-agent.mjs";
 import { startWeb, takeQueued } from "./lib/web.mjs";
+import { startSync } from "./lib/sync.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const RUNS_FILE = join(DATA_DIR, "runs.json");
@@ -151,6 +152,8 @@ async function loop() {
   clearRunning(agents().map((a) => a.id));
   // Weboberfläche „Zeitplan“ (WEB_PORT, Standard 8080; „aus“ = keine)
   startWeb();
+  // agents/ aus GitHub nachladen (AGENTS_SYNC, Standard alle 10 min; „aus“ = nie)
+  startSync();
   // Beim ersten Start keine alten Zeiten von heute nachholen
   const n0 = now();
   const runs = loadRuns();

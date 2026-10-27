@@ -7,7 +7,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent } from "./run-agent.mjs";
-import { socket, post, update, react, unreact, download, linksIn, plain, link } from "./lib/slack.mjs";
+import { socket, post, update, react, unreact, download, linksIn, plain, link, respond } from "./lib/slack.mjs";
+import { neurons, neuronsText } from "./lib/bild.mjs";
 import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
@@ -125,7 +126,20 @@ if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
   process.exit(0);
 }
 log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agent ${AGENT})`);
-socket({ onEvent, onAction, log });
+// Slash-Befehle (im Manifest angelegt): /neuronen = heute noch freie Cloudflare-Neuronen für KI-Fotos
+// Das Free-Kontingent beginnt um 00:00 UTC neu – hier in Ortszeit
+const resetTime = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toLocaleTimeString("de-DE", { timeZone: process.env.TZ || "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
+};
+async function onCommand(c) {
+  if (c.command !== "/neuronen") return respond(c.response_url, `Unbekannter Befehl ${c.command}`);
+  const text = await neurons().then((n) => `🧠 Cloudflare Workers AI: ${neuronsText(n)}. Das Kontingent beginnt um ${resetTime()} Uhr neu.`, (e) => `Neuronen nicht abrufbar: ${e.message}`);
+  await respond(c.response_url, text);
+  log(`/neuronen von ${c.user_id}`);
+}
+
+socket({ onEvent, onAction, onCommand, log });
 
 // Einmal täglich alte Dateien wegräumen (Fotos, Eingänge, Aufträge nach 30 Tagen, Sicherungen nach 180 Tagen)
 const tidy = () => {

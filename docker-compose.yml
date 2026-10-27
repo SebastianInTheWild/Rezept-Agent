@@ -5,6 +5,9 @@ services:
     container_name: rezept-agent
     restart: unless-stopped
     env_file: .env
+    environment:
+      # agents/ ist hier schreibgeschützt eingebunden – Abgleich mit GitHub nur in der Portainer-Variante
+      AGENTS_SYNC: aus
     volumes:
       # Agenten liegen auf dem Host: neue Ordner oder Änderungen gelten ohne Neubau
       - ./agents:/agents:ro

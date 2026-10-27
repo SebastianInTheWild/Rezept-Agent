@@ -31,6 +31,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       BILD_PRO_TAG: ${BILD_PRO_TAG:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
+      # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
+      AGENTS_SYNC: ${AGENTS_SYNC:-10}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten

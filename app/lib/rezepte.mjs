@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIX, SERVINGS_TEXT } from "./tandoor.mjs";
-import { generateImage, imageReady, imageSetupHint, imageType } from "./bild.mjs";
+import { generateImage, imageReady, imageSetupHint, imageType, neurons, neuronsText } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -268,7 +268,8 @@ export async function propose() {
           mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
           p.generated_image = join(REZEPTE, "bilder", `${id}.${imageType(jpg).ext}`);
           writeFileSync(p.generated_image, jpg);
-          d.changes = [...d.changes, "Foto mit KI erzeugt (es gab kein Bild)"];
+          const left = process.env.BILD_ANBIETER === "openai" ? "" : await neurons().then((n) => ` · Cloudflare: ${neuronsText(n)}`, (e) => ` · Neuronen unbekannt: ${e.message}`);
+          d.changes = [...d.changes, `Foto mit KI erzeugt (es gab kein Bild)${left}`];
         } catch (e) {
           warnings.push(`Kein Bild erzeugt: ${e.message.slice(0, 120)}`);
         }
