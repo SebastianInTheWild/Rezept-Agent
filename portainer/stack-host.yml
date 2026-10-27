@@ -17,8 +17,20 @@ services:
     working_dir: /data/app
     command: ["sh", "/data/app/start.sh"]
     environment:
+      # Zugangsdaten: in Portainer unter „Environment variables“ eintragen (Vorlage: .env.example)
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      TANDOOR_URL: ${TANDOOR_URL:-https://app.tandoor.dev}
+      TANDOOR_TOKEN: ${TANDOOR_TOKEN:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CF_AI_TOKEN: ${CF_AI_TOKEN:-}
+      BILD_ANBIETER: ${BILD_ANBIETER:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BILD_PRO_TAG: ${BILD_PRO_TAG:-}
+      WEB_PASSWORT: ${WEB_PASSWORT:-}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten
@@ -26,7 +38,7 @@ services:
       DISABLE_AUTOUPDATER: "1"
     # Weboberfläche „Zeitplan“ (Port 8080 im Container) über Nginx Proxy Manager im ProxyNetwork.
     # Der Homepage-Agent legt aus homepage-agent.* DNS-Eintrag und Proxy-Host an, homepage.* ist die Kachel.
-    # Passwort optional über WEB_PASSWORT in geheim.env.
+    # Passwort optional über die Umgebungsvariable WEB_PASSWORT.
     labels:
       homepage-agent.domain: ${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
       homepage-agent.port: "8080"

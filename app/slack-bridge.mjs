@@ -32,7 +32,7 @@ async function onEvent(e) {
   if (seen.size > 500) seen.delete(seen.values().next().value);
 
   if (!CHANNEL()) {
-    if (warnedChannel !== e.channel) log(`Nachricht aus Kanal ${e.channel} – zum Freigeben SLACK_CHANNEL=${e.channel} in geheim.env eintragen und Container neu starten`);
+    if (warnedChannel !== e.channel) log(`Nachricht aus Kanal ${e.channel} – zum Freigeben Umgebungsvariable SLACK_CHANNEL=${e.channel} setzen und Container neu starten`);
     warnedChannel = e.channel;
     return;
   }

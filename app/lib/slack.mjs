@@ -5,7 +5,7 @@ const API = "https://slack.com/api/";
 export const slackReady = () => Boolean(process.env.SLACK_BOT_TOKEN);
 
 export async function slack(method, body = {}, token = process.env.SLACK_BOT_TOKEN) {
-  if (!token) throw new Error("SLACK_BOT_TOKEN fehlt (geheim.env)");
+  if (!token) throw new Error("SLACK_BOT_TOKEN fehlt (Umgebungsvariable)");
   const r = await fetch(API + method, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },

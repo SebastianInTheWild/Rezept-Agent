@@ -1,7 +1,7 @@
 // Rezeptfoto mit KI erzeugen, wenn ein Rezept kein Bild hat.
 // Standard: Cloudflare Workers AI (kostenlos im Free-Plan, 10.000 Neurons/Tag) mit FLUX.2 Klein 9B, Ersatz FLUX.1 Schnell.
 // Optional: OpenAI (kostenpflichtig) mit BILD_ANBIETER=openai.
-// geheim.env: CF_ACCOUNT_ID, CF_AI_TOKEN | OPENAI_API_KEY; optional BILD_ANBIETER, BILD_MODELL, BILD_QUALITAET, BILD_PRO_TAG (Standard 10).
+// Umgebungsvariablen: CF_ACCOUNT_ID, CF_AI_TOKEN | OPENAI_API_KEY; optional BILD_ANBIETER, BILD_MODELL, BILD_QUALITAET, BILD_PRO_TAG (Standard 10).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 const cloudflareReady = () => Boolean(process.env.CF_ACCOUNT_ID && process.env.CF_AI_TOKEN);
 const provider = () => process.env.BILD_ANBIETER || (cloudflareReady() ? "cloudflare" : process.env.OPENAI_API_KEY ? "openai" : "");
 export const imageReady = () => (provider() === "openai" ? Boolean(process.env.OPENAI_API_KEY) : provider() === "cloudflare" && cloudflareReady());
-export const imageSetupHint = "für KI-Fotos CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare Workers AI) in geheim.env eintragen";
+export const imageSetupHint = "für KI-Fotos CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare Workers AI) als Umgebungsvariablen setzen";
 
 // Bildbeschreibung aus dem Rezept: der Agent kann mit image_prompt nachhelfen (wie das fertige Gericht angerichtet aussieht)
 export function imagePrompt(d) {

@@ -17,7 +17,6 @@ Fehlen Bilder, erzeugt der Container KI-Fotos über Cloudflare Workers AI (koste
 ```
 /home/sebastian/docker/rezepte/
   zeitplan.conf   wann welcher Agent läuft (Änderungen gelten ohne Neustart)
-  geheim.env      Zugangsdaten (Vorlage: geheim.env.example)
   agents/         ein Ordner je Agent (agent.json + prompt.md)
   app/            Programm
   daten/          Entwürfe, Logs je Agent
@@ -28,7 +27,7 @@ Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWOR
 
 ## Zugangsdaten
 
-In `geheim.env` (siehe `geheim.env.example`) bzw. als Umgebungsvariablen:
+Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage: `.env.example`):
 
 - **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
 - **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.

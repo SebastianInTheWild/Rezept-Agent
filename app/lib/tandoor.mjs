@@ -15,7 +15,7 @@ export const SERVINGS_TEXT = "Portionen";
 
 export async function api(method, path, body) {
   const token = process.env.TANDOOR_TOKEN;
-  if (!token) throw new Error("TANDOOR_TOKEN fehlt (geheim.env)");
+  if (!token) throw new Error("TANDOOR_TOKEN fehlt (Umgebungsvariable)");
   const r = await fetch(path.startsWith("http") ? path : base() + path, {
     method,
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
