@@ -78,7 +78,9 @@ async function run(id, quiet, by) {
     appendFileSync(join(data, ".initialized"), new Date().toISOString());
   }
 
-  // Vorprüfung: Gibt sie „0“ aus, gibt es nichts zu tun und Claude wird gar nicht erst gestartet
+  // Vorprüfung: Gibt sie „0“ aus, gibt es nichts zu tun und Claude wird gar nicht erst gestartet.
+  // Gibt sie eine Anzahl aus und hat agent.json „maxTurnsPerItem“, wachsen die erlaubten Schritte mit der Anzahl.
+  let maxTurns = agent.maxTurns || 30;
   if (agent.precheck) {
     const r = spawnSync("sh", ["-c", agent.precheck], { cwd: APP, env, encoding: "utf8" });
     const res = (r.stdout || "").trim();
@@ -91,11 +93,12 @@ async function run(id, quiet, by) {
       return { result: "nichts zu tun" };
     }
     log(`Vorprüfung: ${res}`);
+    if (agent.maxTurnsPerItem && /^\d+$/.test(res)) maxTurns += Number(res) * agent.maxTurnsPerItem;
   }
 
   // {{DATA}} in Anweisung und Rechten = Datenordner des Agenten (dort darf er z. B. seinen Plan ablegen)
   const fill = (s) => s.replaceAll("{{DATA}}", data);
-  const args = ["-p", fill(agent.promptText), "--output-format", "text", "--max-turns", String(agent.maxTurns || 30), "--add-dir", data];
+  const args = ["-p", fill(agent.promptText), "--output-format", "text", "--max-turns", String(maxTurns), "--add-dir", data];
   if (agent.allowedTools?.length) args.push("--allowedTools", ...agent.allowedTools.map(fill));
   if (agent.model || process.env.CLAUDE_MODEL) args.push("--model", agent.model || process.env.CLAUDE_MODEL);
   log(`Claude startet${by !== "direkt" ? ` (${by})` : ""}`);

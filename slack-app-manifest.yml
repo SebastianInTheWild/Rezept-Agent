@@ -16,6 +16,9 @@ features:
     - command: /neuronen
       description: Wie viele Cloudflare-Neuronen für KI-Fotos heute noch frei sind
       should_escape: false
+    - command: /statistik
+      description: Rezept-Statistik – gesamt, geprüft, offen, noch zu prüfen
+      should_escape: false
 oauth_config:
   scopes:
     bot:

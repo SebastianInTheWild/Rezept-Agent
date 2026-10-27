@@ -13,6 +13,6 @@
     "Edit(/{{DATA}}/entwurf.json)",
     "Read(/{{DATA}}/entwurf.json)"
   ],
-  "env": { "REZEPT_BATCH": "5", "REZEPT_MAX_OFFEN": "10" },
-  "maxTurns": 60
+  "maxTurns": 20,
+  "maxTurnsPerItem": 12
 }

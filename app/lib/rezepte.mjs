@@ -17,8 +17,7 @@ const AGENT_DATA = () => process.env.AGENT_DATA || REZEPTE;
 export const DRAFT_FILE = () => join(AGENT_DATA(), "entwurf.json");
 const STANDARD = () => join(process.env.AGENTS_DIR || join(APP, "..", "agents"), "rezept-standard.md");
 const REFERENCE = Number(process.env.REZEPT_VORLAGE || 149567); // Rahmwirsing
-const BATCH = Number(process.env.REZEPT_BATCH || 3);
-const MAX_OPEN = Number(process.env.REZEPT_MAX_OFFEN || 6);
+const SETTINGS = join(REZEPTE, "einstellungen.json");
 const DRY = process.env.DRY === "1";
 export const CHANNEL = () => process.env.SLACK_CHANNEL || "";
 
@@ -34,6 +33,37 @@ export const saveJob = (job) => process.env.REZEPT_JOB && writeFileSync(process.
 const stripDraft = (n) => n.replace(DRAFT_PREFIX, "").trim();
 const kwNames = (r) => (r.keywords || []).map((k) => k.name ?? k.label);
 const uniq = (a) => [...new Set(a)];
+
+// ---------- Einstellungen (Weboberfläche) ----------
+
+export const PER_DAY_MAX = 50;
+const readSettings = () => {
+  try {
+    return JSON.parse(readFileSync(SETTINGS, "utf8"));
+  } catch {
+    return {};
+  }
+};
+/** Wie viele Rezepte der Qualitäts-Agent pro Tag prüft: einstellungen.json (Weboberfläche) > REZEPT_BATCH > 5. */
+export function perDay() {
+  const raw = readSettings().pro_tag;
+  const fromFile = raw == null || raw === "" ? NaN : Number(raw);
+  if (Number.isInteger(fromFile) && fromFile >= 0) return { value: fromFile, source: "Weboberfläche" };
+  const env = (process.env.REZEPT_BATCH || "").trim() ? Number(process.env.REZEPT_BATCH) : NaN;
+  return Number.isInteger(env) && env >= 0 ? { value: env, source: "REZEPT_BATCH" } : { value: 5, source: "Standard" };
+}
+export function setPerDay(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > PER_DAY_MAX) throw new Error(`Bitte eine ganze Zahl von 0 bis ${PER_DAY_MAX}`);
+  mkdirSync(REZEPTE, { recursive: true });
+  writeFileSync(SETTINGS, JSON.stringify({ ...readSettings(), pro_tag: n }, null, 1));
+}
+// Höchstens so viele Qualitäts-Vorschläge gleichzeitig offen in Slack (Standard: zwei Tagesportionen)
+const maxOpen = () => Number(process.env.REZEPT_MAX_OFFEN) || Math.max(1, 2 * perDay().value);
+
+const today = (now = new Date()) => now.toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" });
+const sameDay = (iso, now) => Boolean(iso) && today(new Date(iso)) === today(now);
+const proposedToday = (store, now) => Object.values(store.proposals).filter((p) => p.kind === "quality" && sameDay(p.created, now)).length;
 
 // ---------- Lesen ----------
 
@@ -58,7 +88,9 @@ export async function pending() {
   const store = loadStore();
   const open = Object.values(store.proposals).filter((p) => p.status === "open");
   const busy = new Set(open.map((p) => p.original_id).filter(Boolean));
-  const free = Math.max(0, MAX_OPEN - open.filter((p) => p.kind === "quality").length);
+  // Tageslimit gilt über alle Läufe eines Tages (Zeitplan und „Jetzt starten“ zusammen)
+  const leftToday = Math.max(0, perDay().value - proposedToday(store));
+  const free = Math.max(0, maxOpen() - open.filter((p) => p.kind === "quality").length);
   const later = (a, b) => b && Date.parse(a) - Date.parse(b) > 120_000;
   const list = (await all("/api/recipe/"))
     .filter((r) => !r.name.startsWith(DRAFT_PREFIX) && !busy.has(r.id))
@@ -70,7 +102,7 @@ export async function pending() {
       return true;
     })
     .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-  return { total: list.length, open_proposals: open.length, batch: list.slice(0, Math.min(BATCH, free)) };
+  return { total: list.length, open_proposals: open.length, batch: list.slice(0, Math.min(leftToday, free)) };
 }
 
 // Statistik über alle Rezepte (ohne Entwürfe) nach Status-Schlagwort, dazu was heute entschieden wurde
@@ -82,20 +114,19 @@ export async function stats(now = new Date()) {
   const open = recipes.filter((r) => has(r, KW.open)).length;
   const skipped = recipes.filter((r) => has(r, KW.skip)).length;
   const todo = recipes.length - checked - open - skipped;
-  const day = now.toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" });
-  const sameDay = (iso) => iso && new Date(iso).toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" }) === day;
+  const batch = perDay().value;
   return {
     total: recipes.length,
     checked,
     open,
     skipped,
     todo,
-    batch: BATCH,
-    days_left: BATCH > 0 ? Math.ceil(todo / BATCH) : null,
+    batch,
+    days_left: batch > 0 ? Math.ceil(todo / batch) : null,
     today: {
-      proposed: Object.values(store.proposals).filter((p) => p.kind === "quality" && sameDay(p.created)).length,
-      applied: Object.values(store.proposals).filter((p) => p.status === "applied" && sameDay(p.decided)).length,
-      rejected: Object.values(store.proposals).filter((p) => ["rejected", "skipped"].includes(p.status) && sameDay(p.decided)).length,
+      proposed: proposedToday(store, now),
+      applied: Object.values(store.proposals).filter((p) => p.status === "applied" && sameDay(p.decided, now)).length,
+      rejected: Object.values(store.proposals).filter((p) => ["rejected", "skipped"].includes(p.status) && sameDay(p.decided, now)).length,
     },
   };
 }
@@ -109,7 +140,7 @@ export function statsMessage(s, date = new Date()) {
     `• ✅ geprüft: *${s.checked}* (${pct(s.checked)} %)`,
     `• ⏳ Vorschlag wartet auf dich: *${s.open}*`,
     `• 🚫 nicht bearbeiten: ${s.skipped}`,
-    `• 📝 noch zu prüfen: *${s.todo}*` + (s.todo && s.days_left ? ` – bei ${s.batch} pro Tag noch etwa ${s.days_left} ${s.days_left === 1 ? "Tag" : "Tage"}` : ""),
+    `• 📝 noch zu prüfen: *${s.todo}*` + (s.todo && s.days_left ? ` – bei ${s.batch} pro Tag noch etwa ${s.days_left} ${s.days_left === 1 ? "Tag" : "Tage"}` : s.todo && !s.batch ? " – tägliche Prüfung ist auf 0 gestellt" : ""),
   ];
   const t = s.today;
   if (t.proposed || t.applied || t.rejected) lines.push(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`);

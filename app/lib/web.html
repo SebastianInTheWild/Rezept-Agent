@@ -73,6 +73,8 @@
   .actions { display: flex; flex-wrap: wrap; gap: var(--md); align-items: center; }
   .actions .spacer { flex: 1; }
   .err { color: var(--danger); font-size: 13px; margin: 0; }
+  .perday { display: flex; flex-wrap: wrap; gap: var(--sm); align-items: center; padding: var(--md); background: var(--pearl); border-radius: var(--r-md); font-size: 15px; }
+  .perday label { font-weight: 600; }
 
   .toast { position: fixed; top: 56px; left: 50%; transform: translate(-50%, -12px); opacity: 0; max-width: 92%; background: var(--tile); color: var(--on-primary); padding: var(--md) var(--lg); border-radius: var(--r-lg); font-size: 15px; transition: opacity .18s ease-out, transform .22s ease-out; pointer-events: none; z-index: 10; }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -162,6 +164,34 @@ async function startNow(item, button) {
     toast(isStats ? "Rezept-Statistik: in Slack gesendet" : `${item.name}: startet innerhalb von 30 Sekunden`);
   } catch (err) { toast(err.message, true); render(); }
 }
+// Wie viele Rezepte der Qualitäts-Agent pro Tag prüft
+async function savePerDay(item, input, button) {
+  const value = Number(input.value);
+  if (!Number.isInteger(value) || value < 0 || value > item.perDay.max) return toast(`Bitte eine ganze Zahl von 0 bis ${item.perDay.max}`, true);
+  button.disabled = true;
+  try {
+    const r = await fetch("api/pro-tag", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    data = j; render();
+    toast(`${item.name}: ${value} ${value === 1 ? "Rezept" : "Rezepte"} pro Tag`);
+  } catch (err) { toast(err.message, true); button.disabled = false; }
+}
+function perDayBox(item) {
+  const box = el("div", "perday");
+  const id = `perday-${item.id}`;
+  const label = el("label", null, "Rezepte pro Tag prüfen:"); label.htmlFor = id;
+  const n = el("input", "field"); n.type = "number"; n.id = id; n.min = "0"; n.max = String(item.perDay.max); n.step = "1"; n.value = item.perDay.value;
+  const ok = el("button", "btn", "Speichern"); ok.type = "button"; ok.disabled = true;
+  n.oninput = () => (ok.disabled = n.value === String(item.perDay.value));
+  n.onkeydown = (ev) => { if (ev.key === "Enter" && !ok.disabled) savePerDay(item, n, ok); };
+  ok.onclick = () => savePerDay(item, n, ok);
+  box.append(label, n, ok, el("span", "source", item.perDay.source === "Weboberfläche" ? "" : `· ${item.perDay.source}`));
+  const wrap = el("div"); wrap.style.display = "grid"; wrap.style.gap = "var(--xs)";
+  wrap.append(box, el("p", "hint", "Gilt für den ganzen Tag, auch über mehrere Läufe und „Jetzt starten“. 0 = keine neuen Vorschläge. Wirkt ab dem nächsten Lauf."));
+  return wrap;
+}
+
 async function send(item, payload) {
   try {
     const r = await fetch(`api/plan/${encodeURIComponent(item.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -264,6 +294,7 @@ function card(item) {
     if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · nichts zu tun`);
   }
   c.append(meta);
+  if (item.perDay) c.append(perDayBox(item));
 
   if (editing?.id === item.id) c.append(editor(item));
   else if (item.kind === "agent" && !item.manual && !item.schedule.length) {
@@ -292,7 +323,7 @@ function render() {
 }
 
 async function load() {
-  if (editing) return; // nicht während der Bearbeitung neu zeichnen
+  if (editing || document.activeElement?.closest(".perday")) return; // nicht während der Bearbeitung neu zeichnen
   try {
     const r = await fetch("api/plan", { cache: "no-store" });
     if (!r.ok) throw new Error(r.statusText);

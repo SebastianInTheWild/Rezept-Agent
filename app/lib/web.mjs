@@ -1,5 +1,6 @@
 // Weboberfläche „Zeitplan“: zeigt alle Agenten aus agents/ mit Zeitplan, letztem und nächstem Lauf
 // und schreibt Änderungen nach zeitplan.conf (Kommentare und Reihenfolge bleiben erhalten). Knopf „Jetzt starten“ je Agent, „Jetzt senden“ für die Statistik.
+// Beim Qualitäts-Agenten zusätzlich: wie viele Rezepte er pro Tag prüft (daten/rezepte/einstellungen.json).
 // Der Zeitplan liest die Datei alle 30 s, die Slack-Brücke jede Minute – ein Neustart ist nicht nötig.
 // Port: WEB_PORT (Standard 8080, „aus“ = keine Oberfläche). Passwort: WEB_PASSWORT (optional, HTTP-Anmeldung).
 // Autor: SebastianInTheWild · MIT-Lizenz
@@ -10,10 +11,12 @@ import { dirname, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AGENTS_DIR, loadAgent, readStatus } from "../run-agent.mjs";
+import { perDay, setPerDay, PER_DAY_MAX } from "./rezepte.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const STATS_ID = "rezept-statistik";
+const QUALITY_ID = "rezept-qualitaet";
 const HTML = join(dirname(fileURLToPath(import.meta.url)), "web.html");
 
 // ---------- zeitplan.conf ----------
@@ -150,6 +153,7 @@ function overview() {
       check: check ? { at: check.at, result: check.result } : null,
       manual: a.manual !== false,
       queued: queued.includes(id),
+      ...(id === QUALITY_ID ? { perDay: { ...perDay(), max: PER_DAY_MAX } } : {}),
     });
   }
   // Sonderfall: tägliche Rezept-Statistik der Slack-Brücke (kein Agent, nur eine Uhrzeit)
@@ -236,6 +240,17 @@ export function startWeb() {
           writeEntry(id, list.join("; "));
         } else return send(res, 400, { error: "Unbekannte Aktion" });
         console.log(`[web] Zeitplan ${id} → ${mode === "slots" ? slots.join("; ") : mode}`);
+        return send(res, 200, overview());
+      }
+      if (req.method === "PUT" && url.pathname === "/api/pro-tag") {
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        const { value } = await body(req);
+        try {
+          setPerDay(value);
+        } catch (e) {
+          return send(res, 400, { error: e.message });
+        }
+        console.log(`[web] Rezept-Qualität: ${value} Rezepte pro Tag`);
         return send(res, 200, overview());
       }
       const run = /^\/api\/run\/([\w.-]+)$/.exec(url.pathname);
