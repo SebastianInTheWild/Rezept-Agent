@@ -12,29 +12,37 @@ features:
   bot_user:
     display_name: Rezept-Helfer
     always_online: true
+  # url: Pflichtfeld im Manifest-Editor, wird im Socket Mode aber nicht benutzt (Befehle kommen über die Socket-Verbindung)
   slash_commands:
     - command: /neuronen
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Wie viele Cloudflare-Neuronen für KI-Fotos heute noch frei sind
       should_escape: false
     - command: /statistik
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Rezept-Statistik – gesamt, geprüft, offen, noch zu prüfen
       should_escape: false
     - command: /offen
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Vorschläge, die auf deine Entscheidung warten
       should_escape: false
     - command: /rezept
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Rezept in Tandoor suchen, mit Status
       usage_hint: "<Name>"
       should_escape: false
     - command: /pruefen
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Qualitätsprüfung jetzt starten
       usage_hint: "[Anzahl]"
       should_escape: false
     - command: /pro-tag
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Wie viele Rezepte täglich geprüft werden
       usage_hint: "[Anzahl]"
       should_escape: false
     - command: /hilfe
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Was der Rezept-Helfer kann
       should_escape: false
 oauth_config:
