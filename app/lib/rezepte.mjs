@@ -9,6 +9,7 @@ import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, r
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
+import { fetchHelloFresh, isHelloFresh } from "./hellofresh.mjs";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -300,6 +301,8 @@ export async function fetchUrl(url) {
   const allowed = [...(job?.urls || []), ...(job?.extra_urls || [])];
   if (!url) url = allowed[0];
   if (!url || !allowed.includes(url)) throw new Error(`Nur Links aus dem Auftrag sind erlaubt: ${allowed.join(", ") || "keine"}`);
+  // HelloFresh kann Tandoors Import nicht lesen – eigener Leser
+  if (isHelloFresh(url)) return fetchHelloFresh(url, join(REZEPTE, "inbox"));
   const r = await api("POST", "/api/recipe-from-source/", { url });
   if (r.error) return { ok: false, msg: r.msg };
   const rec = r.recipe || {};

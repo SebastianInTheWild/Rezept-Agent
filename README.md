@@ -4,7 +4,7 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
-| `rezepte` | über Slack | Legt aus Links, Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
+| `rezepte` | über Slack | Legt aus Links (auch HelloFresh), Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 
@@ -66,6 +66,10 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | `/hilfe` | Übersicht |
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
+
+## Rezepte von HelloFresh
+
+Tandoors eigener Import kann HelloFresh-Seiten nicht lesen. Für HelloFresh-Links (alle Länderseiten, z. B. `hellofresh.de/recipes/…`) liest der Container das Rezept deshalb selbst aus den Daten der Seite: Zutaten mit Mengen je Portionszahl (der Agent nimmt 2 Portionen), Schritte mit den jeweils verwendeten Zutaten, Utensilien, Zeiten. Packungsangaben wie „1 Packung Kochsahne“ ergänzt der Agent um die übliche Menge. Blockt HelloFresh den Abruf, bittet er um einen Screenshot der Rezeptkarte oder den Text.
 
 ## Rezepte aus Reels und Shorts
 

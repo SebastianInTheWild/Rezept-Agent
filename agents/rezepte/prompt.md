@@ -8,6 +8,14 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 2. `node tandoor.mjs context` – der Standard (`standard`), die Vorlage (`reference`), erlaubte Einheiten (`units`), Schlagwörter (`keywords`) und vorhandene Lebensmittel (`foods`). Lies den Standard genau, er gilt für alles.
 3. Rezept holen:
    - Link: `node tandoor.mjs fetch-url` (erster Link) oder `node tandoor.mjs fetch-url <link>`. Das Ergebnis ist Tandoors eigene Auslese der Seite. Liefert sie nichts (`ok: false`), kannst du die Seite nicht anders lesen. Dann `node tandoor.mjs reply "<kurze Erklärung>"` und Schluss.
+   - HelloFresh-Link: ebenfalls `node tandoor.mjs fetch-url` – das Werkzeug liest HelloFresh selbst (`source: "HelloFresh"`). Du bekommst:
+     - `yields`: die Zutaten mit Mengen je Portionszahl (`servings`). Nimm die Variante für 2 Portionen, sonst die kleinste; `servings` im Entwurf = diese Zahl. Zutaten mit `amount: null` sind „nach Geschmack“ (`no_amount`).
+     - `steps`: Schritte, bei `ingredients` steht, welche Zutaten im Schritt verwendet werden – verteile die Zutaten entsprechend. Ohne Angabe ordne sie dem Schritt zu, in dem sie zuerst vorkommen.
+     - `devices`: Utensilien → `devices`. `working_time` (Minuten), `total_time` → `waiting_time` = total − working.
+     - HelloFresh-Einheiten wie „Stück“, „Packung“, „Bund“, „Zehe“ auf die erlaubten Einheiten abbilden; Packungsangaben (z. B. „1 Packung Sahne“) mit der üblichen Menge in g/ml ergänzen und in `changes` nennen.
+     - `image_file`: das Foto des Gerichts – ansehen und daraus `image_prompt` schreiben.
+     - `keywords`/`allergens`: Anhaltspunkte für Schlagwörter (nur vorhandene bzw. höchstens 2 neue).
+     `ok: false`: `reply` mit `msg` und Schluss.
    - Video-Link (Instagram-Reel, YouTube-Short, TikTok): `node tandoor.mjs fetch-video` (erster Video-Link) oder `node tandoor.mjs fetch-video <link>`. Das dauert 1–3 Minuten. Du bekommst:
      - `description`: die Bildunterschrift bzw. Videobeschreibung – oft mit Zutatenliste.
      - `video_text`: was im Video gesagt und eingeblendet wird, von Gemini herausgeschrieben (Zutaten, Schritte, `FERTIG_BEI`). Kann fehlen, dann steht der Grund in `notes`.

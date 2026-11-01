@@ -7,6 +7,7 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben.
 ### Neu
 - **Rezepte aus Instagram-Reels und YouTube-Shorts** (auch TikTok und YouTube-Videos bis 10 Minuten): Link in den Rezept-Kanal schicken. `yt-dlp` holt Bildunterschrift und Video, Gemini wertet das Video aus (Gesprochenes, eingeblendeter Text, Mengen), der Agent baut daraus den Entwurf. Ein Link zum Blog in der Bildunterschrift wird bevorzugt gelesen. Neue Einstellungen: `GEMINI_VIDEO_MODELL`, `VIDEO_MAX_SEKUNDEN`, `VIDEO_COOKIES`.
 - **Einheitlicher Bildstil:** Alle KI-Rezeptfotos nutzen denselben Stil aus `agents/bild-stil.md` (Prompt für Nano Banana: Tisch, Licht, Perspektive, passendes Geschirr). Neue Rezepte bekommen immer ein KI-Foto, auch wenn die Quelle ein eigenes Foto hat; der Agent beschreibt nur das Gericht (`image_prompt`). Abschaltbar mit `BILD_EINHEITLICH=aus`. Vorhandene Rezepte mit `/bild-alle` angleichen.
+- **Rezepte von HelloFresh importieren:** Tandoors Import scheitert an HelloFresh – der Container liest die Rezeptdaten jetzt selbst aus der Seite (Zutaten je Portionszahl, Schritte mit Zutaten, Utensilien, Zeiten; Reserve: schema.org-Daten).
 - **Rezepttext einfügen:** Längerer Text ohne Link oder Foto (z. B. eine kopierte Bildunterschrift) wird als Rezept angelegt statt mit der Hilfe beantwortet.
 
 ### Geändert
