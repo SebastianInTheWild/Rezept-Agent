@@ -8,7 +8,7 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 
-Fehlen Bilder, erzeugt der Container KI-Fotos über Cloudflare Workers AI (kostenlos) oder optional OpenAI.
+Fehlen Bilder, erzeugt der Container KI-Fotos über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI. Fällt Google oder OpenAI aus, springt Cloudflare ein.
 
 ## Einrichten mit Portainer: Ordner auf dem Host
 
@@ -47,7 +47,8 @@ Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage:
 - **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
 - **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.
 - **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen. In den Kanal kommen auch Meldungen über fehlgeschlagene Läufe.
-- **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
+- **GEMINI_API_KEY:** für KI-Fotos mit Google Nano Banana (optional, ca. 0,03–0,04 $ pro Bild). Schlüssel unter [aistudio.google.com](https://aistudio.google.com) → „Get API key“, Abrechnung muss aktiviert sein. Modell ändern mit `GOOGLE_BILD_MODELL` (Standard `gemini-nano-banana-2.1`).
+- **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional, kostenlos; mit Google als Ersatz). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
 
 ## Einrichten mit Docker Compose
 
