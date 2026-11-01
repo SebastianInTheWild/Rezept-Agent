@@ -5,7 +5,8 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben.
 ## Unveröffentlicht
 
 ### Neu
-- **Rezepte aus Instagram-Reels und YouTube-Shorts** (auch TikTok und YouTube-Videos bis 10 Minuten): Link in den Rezept-Kanal schicken. `yt-dlp` holt Bildunterschrift und Video, Gemini wertet das Video aus (Gesprochenes, eingeblendeter Text, Mengen), der Agent baut daraus den Entwurf. Ein Link zum Blog in der Bildunterschrift wird bevorzugt gelesen; als Foto dient ein Standbild des fertigen Gerichts. Neue Einstellungen: `GEMINI_VIDEO_MODELL`, `VIDEO_MAX_SEKUNDEN`, `VIDEO_COOKIES`.
+- **Rezepte aus Instagram-Reels und YouTube-Shorts** (auch TikTok und YouTube-Videos bis 10 Minuten): Link in den Rezept-Kanal schicken. `yt-dlp` holt Bildunterschrift und Video, Gemini wertet das Video aus (Gesprochenes, eingeblendeter Text, Mengen), der Agent baut daraus den Entwurf. Ein Link zum Blog in der Bildunterschrift wird bevorzugt gelesen. Neue Einstellungen: `GEMINI_VIDEO_MODELL`, `VIDEO_MAX_SEKUNDEN`, `VIDEO_COOKIES`.
+- **Einheitlicher Bildstil:** Alle KI-Rezeptfotos nutzen denselben Stil aus `agents/bild-stil.md` (Prompt für Nano Banana: Tisch, Licht, Perspektive, passendes Geschirr). Neue Rezepte bekommen immer ein KI-Foto, auch wenn die Quelle ein eigenes Foto hat; der Agent beschreibt nur das Gericht (`image_prompt`). Abschaltbar mit `BILD_EINHEITLICH=aus`. Vorhandene Rezepte mit `/bild-alle` angleichen.
 - **Rezepttext einfügen:** Längerer Text ohne Link oder Foto (z. B. eine kopierte Bildunterschrift) wird als Rezept angelegt statt mit der Hilfe beantwortet.
 
 ### Geändert

@@ -9,7 +9,8 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const READY = {
   google: () => Boolean(process.env.GEMINI_API_KEY),
@@ -28,19 +29,30 @@ export const googlePrice = () => GOOGLE_PRICE[googleModel()] ?? null;
 const NAMES = { google: "Google Nano Banana", cloudflare: "Cloudflare FLUX", openai: "OpenAI GPT Image" };
 let lastProvider = "";
 
-// Bildbeschreibung aus dem Rezept: der Agent kann mit image_prompt nachhelfen (wie das fertige Gericht angerichtet aussieht)
+// Bildbeschreibung aus dem Rezept mit einheitlichem Stil aus agents/bild-stil.md (Platzhalter {{name}}, {{gericht}}, {{zutaten}}).
+// Der Agent hilft mit image_prompt nach (wie das fertige Gericht angerichtet aussieht); sonst dient die Rezeptbeschreibung.
+const STYLE_FILE = () => process.env.BILD_STIL_DATEI || join(process.env.AGENTS_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "..", "agents"), "bild-stil.md");
+const DEFAULT_STYLE = `A photorealistic, professional food photograph of homemade "{{name}}".
+{{gericht}}
+The dish is made from: {{zutaten}}. Do not add garnishes, sides or ingredients that are not part of the recipe.
+Served on a plain plate or in a fitting dish on a rustic light oak table, soft natural window light from the left, 45-degree angle, shallow depth of field, warm true-to-life colors.
+The image contains only the food and table setting – no text, labels, logos, people or hands.`;
+export function imageStyle() {
+  try {
+    const t = readFileSync(STYLE_FILE(), "utf8").replace(/<!--[\s\S]*?-->/g, "").trim();
+    if (t.includes("{{name}}")) return t;
+  } catch {}
+  return DEFAULT_STYLE;
+}
 export function imagePrompt(d) {
-  const main = d.steps.flatMap((s) => s.ingredients || []).filter((i) => !i.no_amount).slice(0, 8).map((i) => i.food);
-  return [
-    `Appetizing, realistic food photograph of the finished dish "${d.name}".`,
-    d.image_prompt ? `The dish: ${d.image_prompt}.` : d.description ? `Description (German): ${d.description}` : "",
-    main.length ? `Main ingredients (German): ${main.join(", ")}.` : "",
-    "Home-cooked style, served on a plain plate or in a baking dish on a wooden kitchen table, soft natural daylight, shallow depth of field, slightly from above.",
-    "No text, no letters, no watermark, no hands, no people.",
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .slice(0, 2000);
+  const main = d.steps.flatMap((s) => s.ingredients || []).filter((i) => !i.no_amount && i.food).slice(0, 8).map((i) => i.food);
+  const dish = d.image_prompt ? `The finished dish looks like this: ${d.image_prompt}.` : d.description ? `The dish is described as (German): ${d.description}` : "";
+  return imageStyle()
+    .replaceAll("{{name}}", d.name)
+    .replaceAll("{{gericht}}", dish)
+    .replaceAll("{{zutaten}}", main.length ? main.join(", ") : "the ingredients typical for this dish")
+    .replace(/\n{3,}/g, "\n\n")
+    .slice(0, 3000);
 }
 
 // Tageslimit gegen unerwartete Kosten bzw. ein leeres Kontingent

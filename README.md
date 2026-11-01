@@ -8,7 +8,9 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 
-Fehlen Bilder, erzeugt der Container KI-Fotos über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI. Fällt Google oder OpenAI aus, springt Cloudflare ein.
+Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI; fällt Google oder OpenAI aus, springt Cloudflare ein.
+
+**Einheitlicher Bildstil:** Alle KI-Fotos nutzen denselben Stil – Tisch, Licht, Perspektive und Geschirr stehen in [`agents/bild-stil.md`](agents/bild-stil.md). Neue Rezepte (Links, Reels, Fotos, Text) bekommen immer ein KI-Foto in diesem Stil, auch wenn die Quelle ein eigenes Foto hat; der Agent beschreibt dafür nur, wie das Gericht aussieht (anhand des Quellfotos bzw. der Standbilder aus dem Video). Den Stil änderst du in der Datei (gilt ab dem nächsten Bild, über GitHub ohne Neustart); `/bild-alle` bringt alle vorhandenen Rezepte auf den Stil. `BILD_EINHEITLICH=aus` nimmt stattdessen wieder das Foto der Quelle.
 
 ## Einrichten mit Portainer
 
@@ -71,7 +73,7 @@ Einen Link zu einem **Instagram-Reel** oder **YouTube-Short** (auch TikTok und n
 
 1. `yt-dlp` holt Bildunterschrift und Video, `ffmpeg` zieht Standbilder.
 2. **Gemini** sieht sich das Video an und schreibt heraus, was gesagt und eingeblendet wird – Zutaten, Mengen, Schritte (nutzt `GEMINI_API_KEY`, Modell `GEMINI_VIDEO_MODELL`, Standard `gemini-flash-latest`; unter 1 Cent pro Reel). Ohne Schlüssel gibt es nur Bildunterschrift und Standbilder.
-3. Der Agent setzt daraus das Rezept zusammen. Verweist die Bildunterschrift auf einen Blog mit dem ganzen Rezept, nimmt er bevorzugt diesen. Als Rezeptfoto dient ein Standbild des fertigen Gerichts, sonst ein KI-Foto.
+3. Der Agent setzt daraus das Rezept zusammen. Verweist die Bildunterschrift auf einen Blog mit dem ganzen Rezept, nimmt er bevorzugt diesen. Das Rezeptfoto ist ein KI-Foto im einheitlichen Stil; die Standbilder nutzt der Agent, um das Gericht dafür zu beschreiben.
 
 Instagram blockt Abrufe ohne Anmeldung manchmal. Dann antwortet der Agent im Thread und bittet um die Bildunterschrift als Text oder einen Screenshot. Wird das häufig, hilft eine Cookie-Datei eines (am besten zweiten) Instagram-Kontos: `VIDEO_COOKIES=/data/daten/cookies.txt` (Netscape-Format, z. B. mit einer Browser-Erweiterung „Get cookies.txt“ exportiert). Automatisches Abrufen ist bei Instagram nicht erlaubt; das Konto kann gesperrt werden.
 

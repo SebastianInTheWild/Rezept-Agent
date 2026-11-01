@@ -22,6 +22,7 @@ export const FIELDS = [
   { group: "Slack", key: "SLACK_APP_ID", label: "App-ID (für das Manifest)", hint: "A0…, unter api.slack.com/apps → Basic Information" },
   { group: "Slack", key: "SLACK_CONFIG_TOKEN", label: "Refresh-Token der App-Konfiguration", secret: true, hint: "xoxe-1-…, unter api.slack.com/apps → „Your App Configuration Tokens“" },
   { group: "KI-Fotos", key: "BILD_ANBIETER", label: "Anbieter", options: ["", "google", "cloudflare", "openai"], hint: "leer = automatisch: Google vor Cloudflare vor OpenAI" },
+  { group: "KI-Fotos", key: "BILD_EINHEITLICH", label: "Einheitlicher Bildstil", options: ["", "an", "aus"], hint: "leer = an: neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen, wenn vorhanden" },
   { group: "KI-Fotos", key: "GEMINI_API_KEY", label: "Google-API-Schlüssel", secret: true, hint: "aistudio.google.com → „Get API key“" },
   { group: "KI-Fotos", key: "GOOGLE_BILD_MODELL", label: "Google-Modell", options: ["", "gemini-nano-banana-2.1", "gemini-2.5-flash-image", "gemini-3-pro-image"], hint: "leer = gemini-nano-banana-2.1" },
   { group: "KI-Fotos", key: "CF_ACCOUNT_ID", label: "Cloudflare-Account-ID" },

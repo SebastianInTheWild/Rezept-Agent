@@ -439,7 +439,10 @@ export async function propose() {
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
-    // Bild: Standbild aus einem Video, von der Quelle bzw. vom Original übernehmen, sonst mit KI erzeugen
+    // Bild: einheitlicher KI-Stil (BILD_EINHEITLICH, Standard an) – neue Rezepte bekommen immer ein KI-Foto,
+    // Verbesserungsvorschläge behalten das Foto des Originals. Mit BILD_EINHEITLICH=aus: Foto der Quelle bzw. Standbild aus dem Video.
+    const uniform = !/^(aus|nein|off|0)$/i.test((process.env.BILD_EINHEITLICH || "an").trim());
+    if (uniform && kind === "import") delete d.image_file, delete d.image_url;
     let hasImage = false;
     if (d.image_file) {
       const inbox = resolve(REZEPTE, "inbox");

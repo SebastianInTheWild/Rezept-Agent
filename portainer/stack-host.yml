@@ -40,6 +40,8 @@ services:
       VIDEO_MAX_SEKUNDEN: ${VIDEO_MAX_SEKUNDEN:-}
       VIDEO_COOKIES: ${VIDEO_COOKIES:-}
       BILD_PRO_TAG: ${BILD_PRO_TAG:-}
+      # an (Standard): neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen
+      BILD_EINHEITLICH: ${BILD_EINHEITLICH:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
       # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
       AGENTS_SYNC: ${AGENTS_SYNC:-10}

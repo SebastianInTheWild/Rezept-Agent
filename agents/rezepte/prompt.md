@@ -28,8 +28,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
   "working_time": 20,
   "waiting_time": 10,
   "source_url": "https://…",
-  "image_url": "https://… (bei Links: das passende Bild aus fetch-url, sonst weglassen)",
-  "image_file": "/…/inbox/video-…-fertig.jpg (bei Videos: das passende Standbild, sonst weglassen)",
+  "image_prompt": "cremiger, hellgrüner Wirsing in einer tiefen weißen Schüssel, kleine Speckwürfel obenauf",
   "keywords": ["Einfach", "Herzhaft", "Beilage", "Wirsing", "Sahne"],
   "devices": ["Messer", "Schneidebrett", "Topf"],
   "steps": [
@@ -48,8 +47,8 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 6. `node tandoor.mjs propose` – prüft die Datei, legt den Entwurf in Tandoor an (bzw. ändert ihn) und zeigt ihn in Slack mit Knöpfen. Meldet es `ok: false`, lies `errors`, korrigiere die Datei und ruf `propose` noch einmal auf. Bei `ok: true` bist du fertig.
 
 ## Regeln
-- `image_file`: Bei Videos nimm das Standbild, auf dem das fertige Gericht am besten zu sehen ist (meist `…-fertig.jpg`, sonst eins der letzten) – vorher mit Read ansehen. Zeigt keins das fertige Gericht gut (nur Zwischenschritte, großer Text darüber), lass `image_file` weg; dann entsteht ein KI-Foto (`image_prompt` schreiben).
-- `image_url`: Nimm bei Links das Foto des fertigen Gerichts aus `fetch-url` (`image_url` oder das passendste aus `images`). Gibt es keins (z. B. bei Fotos von Kochbuchseiten), lass `image_url` weg. Das Werkzeug erzeugt dann ein Foto mit KI. Schreib dafür `"image_prompt"`: ein Satz, wie das fertige Gericht angerichtet aussieht, z. B. „dunkles Gulasch in einer tiefen Schale, gehackte Petersilie obenauf, Brot daneben“.
+- `image_prompt` (immer): Alle Rezeptfotos werden mit KI in einem einheitlichen Stil erzeugt (Tisch, Licht und Perspektive legt `agents/bild-stil.md` fest). Du beschreibst nur das **Gericht selbst** in 1–2 Sätzen: Farbe, Konsistenz, Form, was obenauf liegt, worin es serviert wird – z. B. „dunkles Gulasch in einer tiefen Schale, gehackte Petersilie obenauf, Brot daneben“. Gibt es ein Foto der Quelle (`image_url`/`images` aus `fetch-url`, das Foto aus dem Auftrag oder bei Videos die Standbilder `frames`, vor allem `…-fertig.jpg`), sieh es dir an und beschreib das Gericht so, wie es dort aussieht. Nur Zutaten aus dem Rezept, kein Text, keine Personen.
+- `image_url` / `image_file` (optional): Foto-Link der Quelle bzw. Pfad eines Standbilds. Werden nur genutzt, wenn der einheitliche Bildstil ausgeschaltet ist (`BILD_EINHEITLICH=aus`); schadet nicht, sie mitzuschicken.
 - Der Entwurf ist immer komplett auf Deutsch, egal in welcher Sprache Link oder Foto sind (Englisch, Französisch, Italienisch …). Übersetze alles, auch Zutaten und Notizen, und rechne Maße um (siehe Abschnitt „Sprache“ im Standard). In `changes` steht dann z. B. „Aus dem Französischen übersetzt“.
 - `changes`: 2–8 kurze Punkte, was du gemacht oder angenommen hast, verständlich für Menschen ohne Technikwissen.
 - Erfinde keine Zutaten oder Schritte, die nicht in der Quelle stehen. Fehlende Mengen schätzen ist erlaubt, wenn du es in `changes` sagst.
