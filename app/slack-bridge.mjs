@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
+import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
 import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe } from "./lib/rezepte.mjs";
 
@@ -404,6 +405,28 @@ async function onCommand(c) {
 }
 
 socket({ onEvent, onAction, onCommand, log });
+// Slack-Manifest (neue Befehle usw.) selbst einspielen – beim Start und alle 10 Minuten, nur wenn sich die Datei geändert hat
+let manifestError = "";
+async function manifestCheck() {
+  try {
+    const r = await syncManifest();
+    manifestError = "";
+    if (!r) return;
+    log(`Slack-Manifest eingespielt${r.permissions_updated ? " – neue Berechtigungen, App muss neu installiert werden" : ""}`);
+    if (CHANNEL())
+      await post(CHANNEL(), r.permissions_updated
+        ? "🔄 Die Slack-App wurde aktualisiert und braucht *neue Berechtigungen*: bitte unter api.slack.com/apps → Rezept-Helfer → „Install App“ neu installieren."
+        : "🔄 Die Slack-App wurde aktualisiert (z. B. neue Befehle) – `/hilfe` zeigt alle.");
+  } catch (e) {
+    if (e.message !== manifestError) log(`Slack-Manifest nicht eingespielt: ${e.message}`);
+    manifestError = e.message;
+  }
+}
+if (manifestSyncReady()) {
+  manifestCheck();
+  setInterval(manifestCheck, 10 * 60_000);
+} else log("Slack-Manifest wird nicht automatisch eingespielt (SLACK_APP_ID/SLACK_CONFIG_TOKEN fehlen)");
+
 // Nach einem Neustart: laufendes „Alle Bilder erneuern“ fortsetzen
 if (loadAll()?.status === "running") setTimeout(runAll, 10_000);
 

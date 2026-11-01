@@ -25,6 +25,17 @@ Fehlen Bilder, erzeugt der Container KI-Fotos über Google Gemini „Nano Banana
 
 Neue oder geänderte Agenten pushst du einfach nach GitHub (`agents/<name>/agent.json` + `prompt.md`, Vorlage `agents/_vorlage`): Der Container holt `agents/` alle 10 Minuten (`AGENTS_SYNC`, „aus“ = nie) und erkennt sie ohne Neustart. Änderungen direkt auf dem Host in Agenten aus dem Repo werden dabei überschrieben.
 
+### Automatisch aktualisieren
+
+Alles, was auf `main` landet, kommt von selbst auf den Server:
+
+| Was | Wie |
+| --- | --- |
+| `agents/` | alle 10 Minuten aus GitHub (`AGENTS_SYNC`), ohne Neustart |
+| `app/` (Programm) | ebenso (`APP_SYNC`, Standard an). Neuer Code wird vorher mit `node --check` geprüft – mit Syntaxfehler bleibt der alte Stand. Danach startet der Container neu, sobald kein Agent läuft. Eigene Änderungen in `app/` auf dem Host werden überschrieben. |
+| `slack-app-manifest.yml` | holt der Abgleich mit; die Slack-Brücke spielt es über die Manifest-API in Slack ein (`SLACK_APP_ID`, `SLACK_CONFIG_TOKEN`) und meldet das im Kanal. Kommen neue Berechtigungen dazu, muss die App einmal von Hand neu installiert werden. |
+| `portainer/stack-host.yml` | Stack in Portainer als **Repository**-Stack anlegen (Compose path `portainer/stack-host.yml`, Reference `refs/heads/main`) und **GitOps updates** (Polling, z. B. 5 Minuten) einschalten |
+
 Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
 
 Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`, `/bild-neu`, `/bild-alle` und `/pro-tag <Zahl>` nur im Rezept-Kanal):

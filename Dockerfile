@@ -16,6 +16,7 @@ ENV AGENTS_DIR=/agents \
 WORKDIR /app
 COPY app/ /app/
 COPY agents/ /agents/
+COPY slack-app-manifest.yml /slack-app-manifest.yml
 RUN mkdir -p /data && chown node:node /data
 
 USER node

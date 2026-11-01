@@ -8,6 +8,7 @@ services:
     environment:
       # agents/ ist hier schreibgeschützt eingebunden – Abgleich mit GitHub nur in der Portainer-Variante
       AGENTS_SYNC: aus
+      APP_SYNC: aus
       # Google-Modell für KI-Fotos (Wert aus .env, sonst Standard)
       GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
     volumes:

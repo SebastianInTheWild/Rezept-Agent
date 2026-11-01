@@ -25,6 +25,9 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_CHANNEL: ${SLACK_CHANNEL:-}
+      # Slack-Manifest automatisch einspielen (optional): App-ID und Refresh-Token der App-Konfiguration
+      SLACK_APP_ID: ${SLACK_APP_ID:-}
+      SLACK_CONFIG_TOKEN: ${SLACK_CONFIG_TOKEN:-}
       CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
       CF_AI_TOKEN: ${CF_AI_TOKEN:-}
       BILD_ANBIETER: ${BILD_ANBIETER:-}
@@ -36,6 +39,8 @@ services:
       WEB_PASSWORT: ${WEB_PASSWORT:-}
       # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
       AGENTS_SYNC: ${AGENTS_SYNC:-10}
+      # dabei auch app/ (Programm) und slack-app-manifest.yml holen; bei neuem Code startet der Container neu, „aus“ = nie
+      APP_SYNC: ${APP_SYNC:-an}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten
