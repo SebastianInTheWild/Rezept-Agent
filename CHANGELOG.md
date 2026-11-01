@@ -1,8 +1,18 @@
 # Changelog
 
-Alle wichtigen Änderungen am Rezept-Agent. Neueste oben.
+Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, newest first – written in German; see the [README](README.md) for an English overview.)
 
 ## Unveröffentlicht
+
+### Neu
+- **Deutsch oder Englisch:** neue Einstellung „Sprache“ (Weboberfläche → Einstellungen → Allgemein, oder `SPRACHE=de|en`). Gilt für neue Rezepte und Verbesserungsvorschläge (vorhandene Rezepte übersetzt der Qualitäts-Agent nach und nach), alle Slack-Nachrichten und Knöpfe und die Weboberfläche. Englischer Rezept-Standard in `agents/rezept-standard.en.md` mit englischen Einheiten; Geräte-Schritt, „Schritt n“, Portionen und Entwurfs-Präfix in der gewählten Sprache.
+- **Englische Slack-Befehle:** `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/per-day`, `/neurons`, `/help` – die deutschen Namen funktionieren weiter. Mit `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` trägt die Brücke bei Englisch die englischen Befehle und Beschreibungen selbst in Slack ein.
+- **README auf Englisch** (`README.md`), deutsche Fassung in `README.de.md`.
+
+### Geändert
+- Status-Schlagwörter in Tandoor und die Logs bleiben bewusst deutsch. Entwürfe werden in beiden Sprachen erkannt („⏳ Entwurf:“ / „⏳ Draft:“).
+
+## 2026-11-01 (Reels, HelloFresh, Bildstil)
 
 ### Neu
 - **Rezepte aus Instagram-Reels und YouTube-Shorts** (auch TikTok und YouTube-Videos bis 10 Minuten): Link in den Rezept-Kanal schicken. `yt-dlp` holt Bildunterschrift und Video, Gemini wertet das Video aus (Gesprochenes, eingeblendeter Text, Mengen), der Agent baut daraus den Entwurf. Ein Link zum Blog in der Bildunterschrift wird bevorzugt gelesen. Neue Einstellungen: `GEMINI_VIDEO_MODELL`, `VIDEO_MAX_SEKUNDEN`, `VIDEO_COOKIES`.

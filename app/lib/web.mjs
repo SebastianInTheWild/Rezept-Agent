@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 import { AGENTS_DIR, hasStartRequest, loadAgent, readStatus, takeStartRequest } from "../run-agent.mjs";
 import { perDay, setPerDay, PER_DAY_MAX } from "./rezepte.mjs";
 import { envOverview, setEnvValues, FIELDS } from "./umgebung.mjs";
+import { L, lang } from "./i18n.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const EN_DAYS = { Mo: "Mon", Di: "Tue", Mi: "Wed", Do: "Thu", Fr: "Fri", Sa: "Sat", So: "Sun" };
 const STATS_ID = "rezept-statistik";
 const QUALITY_ID = "rezept-qualitaet";
 const HTML = join(dirname(fileURLToPath(import.meta.url)), "web.html");
@@ -38,12 +40,12 @@ const slotsOf = (v) => (/^(aus|off|-)?$/i.test(v) ? [] : v.split(";").map((s) =>
 /** Prüft einen Eintrag; gibt die Fehlermeldung zurück oder null. */
 export function checkSlot(slot, { allowInterval = true } = {}) {
   const iv = /^alle\s+(\d+)\s*min$/i.exec(slot);
-  if (iv) return allowInterval && Number(iv[1]) >= 1 ? null : "Abstände sind hier nicht möglich";
+  if (iv) return allowInterval && Number(iv[1]) >= 1 ? null : L("Abstände sind hier nicht möglich", "Intervals are not possible here");
   const m = /^(?:([A-Za-z,]+)\s+)?(\d{2}):(\d{2})$/.exec(slot);
-  if (!m) return `„${slot}“ ist keine gültige Zeit (Beispiele: 08:00, So 18:00, Mo,Mi 07:30, alle 5 min)`;
-  if (Number(m[2]) > 23 || Number(m[3]) > 59) return `„${slot}“ ist keine gültige Uhrzeit`;
+  if (!m) return L(`„${slot}“ ist keine gültige Zeit (Beispiele: 08:00, So 18:00, Mo,Mi 07:30, alle 5 min)`, `“${slot}” is not a valid time (examples: 08:00, So 18:00, Mo,Mi 07:30, alle 5 min)`);
+  if (Number(m[2]) > 23 || Number(m[3]) > 59) return L(`„${slot}“ ist keine gültige Uhrzeit`, `“${slot}” is not a valid time of day`);
   const days = m[1] ? m[1].split(",") : [];
-  if (!days.every((d) => WEEKDAYS.includes(d))) return `Unbekannter Wochentag in „${slot}“ (Mo Di Mi Do Fr Sa So)`;
+  if (!days.every((d) => WEEKDAYS.includes(d))) return L(`Unbekannter Wochentag in „${slot}“ (Mo Di Mi Do Fr Sa So)`, `Unknown weekday in “${slot}” (Mo Di Mi Do Fr Sa So)`);
   return null;
 }
 
@@ -72,10 +74,10 @@ function writeEntry(id, value) {
 
 /** Nächster Lauf als Text aus den Zeitplan-Einträgen („08:00“, „So 18:00“, „alle 5 min“). */
 function nextRunText(agent, nowDate = new Date()) {
-  if (agent.enabled === false) return "nur von Hand";
+  if (agent.enabled === false) return L("nur von Hand", "manual only");
   const slots = [].concat(agent.schedule || []);
   const every = slots.map((s) => /^alle\s+(\d+)\s*min$/i.exec(String(s).trim())).find(Boolean);
-  if (every) return `alle ${every[1]} min`;
+  if (every) return L(`alle ${every[1]} min`, `every ${every[1]} min`);
   const parts = (d) => Object.fromEntries(new Intl.DateTimeFormat("de-DE", { timeZone: process.env.TZ || "UTC", weekday: "short", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false }).formatToParts(d).map((x) => [x.type, x.value]));
   const nowP = parts(nowDate);
   const nowTime = `${nowP.hour}:${nowP.minute}`;
@@ -90,9 +92,9 @@ function nextRunText(agent, nowDate = new Date()) {
       .map((m) => m[2])
       .filter((t) => add > 0 || t > nowTime)
       .sort();
-    if (times.length) return `${add === 0 ? "heute" : add === 1 ? "morgen" : `${wd} ${p.day}.${p.month}.`} ${times[0]}`;
+    if (times.length) return `${add === 0 ? L("heute", "today") : add === 1 ? L("morgen", "tomorrow") : `${L(wd, EN_DAYS[wd] || wd)} ${p.day}.${p.month}.`} ${times[0]}`;
   }
-  return slots.length ? "–" : "nur von Hand";
+  return slots.length ? "–" : L("nur von Hand", "manual only");
 }
 
 // Statistik von Hand („Jetzt senden“): direkt aus der Weboberfläche, unabhängig vom täglichen Versand der Slack-Brücke
@@ -130,7 +132,7 @@ function overview() {
     try {
       a = loadAgent(id);
     } catch (e) {
-      items.push({ id, name: id, error: `agent.json fehlerhaft: ${e.message}` });
+      items.push({ id, name: id, error: `${L("agent.json fehlerhaft", "agent.json is invalid")}: ${e.message}` });
       continue;
     }
     const fromFile = id in plan;
@@ -142,8 +144,8 @@ function overview() {
     items.push({
       id,
       kind: "agent",
-      name: a.name || id,
-      description: a.description || "",
+      name: L(a.name, a.name_en || a.name) || id,
+      description: L(a.description, a.description_en || a.description) || "",
       schedule,
       enabled,
       source: fromFile ? "zeitplan.conf" : "agent.json",
@@ -165,8 +167,8 @@ function overview() {
   items.push({
     id: STATS_ID,
     kind: "statistik",
-    name: "Rezept-Statistik",
-    description: "Schickt täglich die Zahlen zu den Rezepten (gesamt, geprüft, noch offen) in den Slack-Kanal. Kein Agent – das macht die Slack-Brücke.",
+    name: L("Rezept-Statistik", "Recipe statistics"),
+    description: L("Schickt täglich die Zahlen zu den Rezepten (gesamt, geprüft, noch offen) in den Slack-Kanal. Kein Agent – das macht die Slack-Brücke.", "Posts the recipe numbers (total, checked, still open) to the Slack channel every day. Not an agent – the Slack bridge does this."),
     schedule: statsSlots,
     enabled: statsSlots.length > 0,
     source: STATS_ID in plan ? "zeitplan.conf" : envStats ? "REZEPT_STATISTIK" : "Standard",
@@ -175,7 +177,7 @@ function overview() {
     manual: true,
     running: statsSending,
   });
-  return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", items };
+  return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", lang: lang(), items };
 }
 
 // ---------- HTTP ----------
@@ -221,10 +223,10 @@ export function startWeb() {
       const m = /^\/api\/plan\/([\w.-]+)$/.exec(url.pathname);
       if (req.method === "PUT" && m) {
         // Schutz gegen Formular-Angriffe von fremden Seiten: nur JSON von dieser Seite
-        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const id = m[1];
         const isStats = id === STATS_ID;
-        if (!isStats && !agentIds().includes(id)) return send(res, 404, { error: `Agent „${id}“ gibt es nicht` });
+        if (!isStats && !agentIds().includes(id)) return send(res, 404, { error: L(`Agent „${id}“ gibt es nicht`, `Agent “${id}” does not exist`) });
         const { mode, slots = [] } = await body(req);
         if (mode === "default") {
           writeEntry(id, null);
@@ -232,20 +234,20 @@ export function startWeb() {
           writeEntry(id, "aus");
         } else if (mode === "slots") {
           const list = [...new Set(slots.map((s) => String(s).trim()).filter(Boolean))];
-          if (!list.length) return send(res, 400, { error: "Mindestens eine Zeit angeben – oder „Pausieren“ wählen" });
-          if (isStats && list.length > 1) return send(res, 400, { error: "Die Statistik kann nur eine Uhrzeit haben" });
+          if (!list.length) return send(res, 400, { error: L("Mindestens eine Zeit angeben – oder „Pausieren“ wählen", "Enter at least one time – or choose “Paused”") });
+          if (isStats && list.length > 1) return send(res, 400, { error: L("Die Statistik kann nur eine Uhrzeit haben", "The statistics can only have one time") });
           for (const s of list) {
             const err = checkSlot(s, { allowInterval: !isStats });
             if (err) return send(res, 400, { error: err });
           }
-          if (list.some((s) => /^alle/i.test(s)) && list.length > 1) return send(res, 400, { error: "Abstand und feste Zeiten bitte nicht mischen" });
+          if (list.some((s) => /^alle/i.test(s)) && list.length > 1) return send(res, 400, { error: L("Abstand und feste Zeiten bitte nicht mischen", "Please don't mix intervals and fixed times") });
           writeEntry(id, list.join("; "));
-        } else return send(res, 400, { error: "Unbekannte Aktion" });
+        } else return send(res, 400, { error: L("Unbekannte Aktion", "Unknown action") });
         console.log(`[web] Zeitplan ${id} → ${mode === "slots" ? slots.join("; ") : mode}`);
         return send(res, 200, overview());
       }
       if (req.method === "PUT" && url.pathname === "/api/pro-tag") {
-        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const { value } = await body(req);
         try {
           setPerDay(value);
@@ -257,16 +259,17 @@ export function startWeb() {
       }
       // Einstellungen (Umgebungsvariablen)
       const envState = () => ({
+        lang: lang(),
         fields: envOverview(),
         secrets: Boolean(process.env.WEB_PASSWORT),
         running: agentIds().filter((id) => readStatus(id, "status.json")?.running),
       });
       if (req.method === "GET" && url.pathname === "/api/umgebung") return send(res, 200, envState());
       if (req.method === "PUT" && url.pathname === "/api/umgebung") {
-        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const { values = {} } = await body(req);
         const secret = Object.keys(values).filter((k) => FIELDS.find((f) => f.key === k)?.secret);
-        if (secret.length && !process.env.WEB_PASSWORT) return send(res, 403, { error: "Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen)" });
+        if (secret.length && !process.env.WEB_PASSWORT) return send(res, 403, { error: L("Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen)", "Credentials can only be changed when this page has a password (set WEB_PASSWORT in Portainer)") });
         try {
           setEnvValues(values);
         } catch (e) {
@@ -276,7 +279,7 @@ export function startWeb() {
         return send(res, 200, envState());
       }
       if (req.method === "POST" && url.pathname === "/api/neustart") {
-        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         console.log("[web] Neustart von Hand (Einstellungen)");
         send(res, 200, { ok: true });
         // Docker startet den Container neu (restart: unless-stopped) – dann gelten die neuen Werte überall
@@ -285,20 +288,20 @@ export function startWeb() {
       }
       const run = /^\/api\/run\/([\w.-]+)$/.exec(url.pathname);
       if (req.method === "POST" && run) {
-        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const id = run[1];
         if (id === STATS_ID) {
-          if (statsSending) return send(res, 409, { error: "Die Statistik wird gerade gesendet" });
+          if (statsSending) return send(res, 409, { error: L("Die Statistik wird gerade gesendet", "The statistics are being sent right now") });
           await sendStats();
           return send(res, 200, overview());
         }
-        if (!agentIds().includes(id)) return send(res, 404, { error: `Agent „${id}“ gibt es nicht` });
-        if (loadAgent(id).manual === false) return send(res, 400, { error: "Dieser Agent startet nicht von Hand" });
+        if (!agentIds().includes(id)) return send(res, 404, { error: L(`Agent „${id}“ gibt es nicht`, `Agent “${id}” does not exist`) });
+        if (loadAgent(id).manual === false) return send(res, 400, { error: L("Dieser Agent startet nicht von Hand", "This agent can't be started by hand") });
         if (!queued.includes(id) && !readStatus(id, "status.json")?.running) queued.push(id);
         console.log(`[web] ${id} von Hand angefordert`);
         return send(res, 200, overview());
       }
-      send(res, 404, { error: "Nicht gefunden" });
+      send(res, 404, { error: L("Nicht gefunden", "Not found") });
     } catch (e) {
       send(res, 500, { error: e.message });
     }

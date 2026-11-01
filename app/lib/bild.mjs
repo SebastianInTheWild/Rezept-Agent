@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { L, locale } from "./i18n.mjs";
 
 const READY = {
   google: () => Boolean(process.env.GEMINI_API_KEY),
@@ -20,7 +21,7 @@ const READY = {
 const cloudflareReady = READY.cloudflare;
 export const provider = () => (process.env.BILD_ANBIETER || Object.keys(READY).find((p) => READY[p]()) || "").toLowerCase();
 export const imageReady = () => Boolean(READY[provider()]?.());
-export const imageSetupHint = "für KI-Fotos GEMINI_API_KEY (Google) oder CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare, kostenlos) als Umgebungsvariablen setzen";
+export const imageSetupHint = () => L("für KI-Fotos GEMINI_API_KEY (Google) oder CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare, kostenlos) eintragen", "for AI photos set GEMINI_API_KEY (Google) or CF_ACCOUNT_ID and CF_AI_TOKEN (Cloudflare, free)");
 export const googleReady = () => READY.google();
 export const googleModel = () => (process.env.GOOGLE_BILD_MODELL || process.env.BILD_MODELL || "").trim() || "gemini-nano-banana-2.1";
 // Ungefährer Preis pro Bild in US-Dollar (Stand 11/2026, ohne Gewähr) – für die Rückfrage bei /bild-alle
@@ -85,14 +86,14 @@ async function cloudflare(prompt, model = "@cf/black-forest-labs/flux-2-klein-9b
     try {
       return await cfResult(await fetch(cfUrl("@cf/black-forest-labs/flux-1-schnell"), { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ prompt, steps: 8 }) }));
     } catch (e2) {
-      throw new Error(`Cloudflare: ${e.message} / Ersatz: ${e2.message}`);
+      throw new Error(`Cloudflare: ${e.message} / ${L("Ersatz", "fallback")}: ${e2.message}`);
     }
   }
 }
 
 // Heute verbrauchte Neuronen laut Cloudflare (das Free-Kontingent zählt ab 00:00 UTC; die Zahlen kommen mit etwa einer Minute Verzug)
 export async function neurons() {
-  if (!cloudflareReady()) throw new Error("Cloudflare ist nicht eingerichtet (CF_ACCOUNT_ID, CF_AI_TOKEN)");
+  if (!cloudflareReady()) throw new Error(L("Cloudflare ist nicht eingerichtet (CF_ACCOUNT_ID, CF_AI_TOKEN)", "Cloudflare is not set up (CF_ACCOUNT_ID, CF_AI_TOKEN)"));
   const query = "query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a}){aiInferenceAdaptiveGroups(limit:100,filter:{date_geq:$d}){sum{totalNeurons} count}}}}";
   const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
     method: "POST",
@@ -102,7 +103,7 @@ export async function neurons() {
   const j = await r.json().catch(() => ({}));
   if (j.errors?.length || !j.data) {
     const msg = j.errors?.map((e) => e.message).join("; ") || `HTTP ${r.status}`;
-    throw new Error(/not authorized/i.test(msg) ? "der Cloudflare-Token darf die Nutzung nicht lesen – Berechtigung „Account Analytics: Read“ ergänzen" : `Cloudflare: ${msg}`);
+    throw new Error(/not authorized/i.test(msg) ? L("der Cloudflare-Token darf die Nutzung nicht lesen – Berechtigung „Account Analytics: Read“ ergänzen", "the Cloudflare token may not read usage – add the permission “Account Analytics: Read”") : `Cloudflare: ${msg}`);
   }
   const groups = j.data.viewer?.accounts?.[0]?.aiInferenceAdaptiveGroups || [];
   const used = Math.round(groups.reduce((n, g) => n + (g.sum?.totalNeurons || 0), 0));
@@ -110,8 +111,8 @@ export async function neurons() {
   return { used, limit, free: Math.max(0, limit - used), requests: groups.reduce((n, g) => n + (g.count || 0), 0) };
 }
 
-const num = (n) => n.toLocaleString("de-DE");
-export const neuronsText = (n) => `heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`;
+const num = (n) => n.toLocaleString(locale());
+export const neuronsText = (n) => L(`heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`, `${num(n.free)} of ${num(n.limit)} neurons left today (${num(n.used)} used)`);
 
 // Google Gemini API (Nano Banana): Bild kommt als base64 in candidates[].content.parts[].inlineData
 async function google(prompt, model = "gemini-nano-banana-2.1") {
@@ -153,11 +154,11 @@ const RUN = {
 // (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem)
 export async function generateImage(d, dir, { only, noLimit = false } = {}) {
   const main = only || provider();
-  if (!READY[main]?.()) throw new Error(only === "google" ? "GEMINI_API_KEY fehlt – Google ist nicht eingerichtet" : `kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
+  if (!READY[main]?.()) throw new Error(only === "google" ? L("GEMINI_API_KEY fehlt – Google ist nicht eingerichtet", "GEMINI_API_KEY missing – Google is not set up") : `${L("kein Bild-Anbieter eingerichtet", "no image provider set up")} – ${imageSetupHint()}`);
   mkdirSync(dir, { recursive: true });
   const limit = Number(process.env.BILD_PRO_TAG || 10);
   const cnt = countToday(dir);
-  if (!noLimit && cnt.n >= limit) throw new Error(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`);
+  if (!noLimit && cnt.n >= limit) throw new Error(L(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`, `Daily limit of ${limit} pictures reached (BILD_PRO_TAG)`));
   const prompt = imagePrompt(d);
   let img;
   try {
@@ -170,7 +171,7 @@ export async function generateImage(d, dir, { only, noLimit = false } = {}) {
       img = await cloudflare(prompt);
       lastProvider = "cloudflare";
     } catch (e2) {
-      throw new Error(`${e.message} / Ersatz ${e2.message}`);
+      throw new Error(`${e.message} / ${L("Ersatz", "fallback")} ${e2.message}`);
     }
   }
   writeFileSync(cnt.file, JSON.stringify({ day: cnt.day, n: cnt.n + 1 }));
@@ -182,8 +183,8 @@ export async function lastImageNote() {
   const name = NAMES[lastProvider] || lastProvider;
   if (lastProvider === "google") return `${name} (${googleModel()})`;
   if (lastProvider !== "cloudflare") return name;
-  const n = await neurons().then(neuronsText, (e) => `Neuronen unbekannt: ${e.message}`);
-  return `${name}${provider() !== "cloudflare" ? " (Ersatz)" : ""} · ${n}`;
+  const n = await neurons().then(neuronsText, (e) => `${L("Neuronen unbekannt", "neurons unknown")}: ${e.message}`);
+  return `${name}${provider() !== "cloudflare" ? L(" (Ersatz)", " (fallback)") : ""} · ${n}`;
 }
 
 // Bildformat an den ersten Bytes erkennen (FLUX liefert je nach Modell JPEG oder PNG)

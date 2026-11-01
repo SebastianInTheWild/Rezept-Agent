@@ -6,6 +6,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { post, slackReady } from "./lib/slack.mjs";
+import { L } from "./lib/i18n.mjs";
 
 const APP = dirname(fileURLToPath(import.meta.url));
 export const AGENTS_DIR = process.env.AGENTS_DIR || join(APP, "..", "agents");
@@ -128,7 +129,7 @@ async function run(id, quiet, by) {
   if (code !== 0) {
     // Fehlermeldung in den Slack-Kanal (SLACK_CHANNEL), falls Slack eingerichtet ist
     if (slackReady() && process.env.SLACK_CHANNEL) {
-      await post(process.env.SLACK_CHANNEL, `⚠️ Agent „${agent.name || id}“: Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`).catch(() => {});
+      await post(process.env.SLACK_CHANNEL, L(`⚠️ Agent „${agent.name || id}“: Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`, `⚠️ Agent “${agent.name_en || agent.name || id}”: the run failed (code ${code}). Details in the log ${logFile}.`)).catch(() => {});
     }
   }
   return { code, result: code === 0 ? "ok" : "fehler", note: code === 0 ? "" : `Claude beendet mit Code ${code}` };

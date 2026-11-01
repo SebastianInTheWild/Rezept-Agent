@@ -1,6 +1,8 @@
 {
   "name": "Rezepte (Slack)",
+  "name_en": "Recipes (Slack)",
   "description": "Legt aus Links, Reels/Shorts, Fotos und Text aus Slack Rezept-Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Wird von der Slack-Brücke gestartet, nicht nach Zeitplan.",
+  "description_en": "Creates recipe drafts in Tandoor from links, reels/shorts, photos and text sent in Slack, and revises them on request. Started by the Slack bridge, not on a schedule.",
   "icon": "mdi:chef-hat",
   "enabled": true,
   "manual": false,

@@ -18,6 +18,8 @@ services:
     user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       # Zugangsdaten: in Portainer unter „Environment variables“ eintragen (Vorlage: .env.example)
+      # Sprache für Rezepte, Slack und Weboberfläche: de (Standard) oder en – auch in der Weboberfläche einstellbar
+      SPRACHE: ${SPRACHE:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       TANDOOR_URL: ${TANDOOR_URL:-https://app.tandoor.dev}

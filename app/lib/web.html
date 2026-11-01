@@ -103,29 +103,95 @@
 <nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span id="clock"></span></div></nav>
 <main class="wrap" id="view-plan">
   <header class="hero">
-    <h1>Zeitplan</h1>
-    <p class="sub">Wann deine Agenten laufen. Änderungen landen in <code>zeitplan.conf</code> und gelten nach spätestens 30 Sekunden – ohne Neustart.</p>
+    <h1 id="plan-title">Zeitplan</h1>
+    <p class="sub" id="plan-sub">Wann deine Agenten laufen. Änderungen landen in <code>zeitplan.conf</code> und gelten nach spätestens 30 Sekunden – ohne Neustart.</p>
   </header>
   <div class="list" id="list"><div class="empty">Lade …</div></div>
   <footer id="foot"></footer>
 </main>
 <main class="wrap" id="view-env" hidden>
   <header class="hero">
-    <h1>Einstellungen</h1>
-    <p class="sub">Zugangsdaten und Optionen. Werte von hier haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in <code>daten/umgebung.json</code>. Sie gelten nach einem Neustart des Containers.</p>
+    <h1 id="env-title">Einstellungen</h1>
+    <p class="sub" id="env-sub">Zugangsdaten und Optionen. Werte von hier haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in <code>daten/umgebung.json</code>. Sie gelten nach einem Neustart des Containers.</p>
   </header>
   <div class="list" id="env"><div class="empty">Lade …</div></div>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+// Sprache kommt vom Server (Einstellung „Sprache“ / SPRACHE). Deutsche Texte stehen im Code, t() liefert bei Englisch die Übersetzung.
+let LANG = "de";
+const EN = {
+  "Zeitplan": "Schedule", "Einstellungen": "Settings", "Lade …": "Loading …", "Agenten": "Agents",
+  "erfolgreich": "successful", "fehlgeschlagen": "failed", "nichts zu tun": "nothing to do",
+  "alle {n} Minuten": "every {n} minutes", "täglich": "daily", "{days} {time} Uhr": "{days} {time}",
+  "Jede Zeit braucht mindestens einen Wochentag.": "Every time needs at least one weekday.", "Bitte eine Uhrzeit eintragen.": "Please enter a time.",
+  "Rezept-Statistik jetzt in den Slack-Kanal schicken?": "Send the recipe statistics to the Slack channel now?", "{name} jetzt starten?": "Start {name} now?",
+  "Wird gesendet …": "Sending …", "Rezept-Statistik: in Slack gesendet": "Recipe statistics: sent to Slack", "{name}: startet innerhalb von 30 Sekunden": "{name}: starts within 30 seconds",
+  "Bitte eine ganze Zahl von 0 bis {max}": "Please enter a whole number from 0 to {max}", "{name}: {n} Rezept pro Tag": "{name}: {n} recipe per day", "{name}: {n} Rezepte pro Tag": "{name}: {n} recipes per day",
+  "Rezepte pro Tag prüfen:": "Recipes to check per day:", "Speichern": "Save",
+  "Gilt für den ganzen Tag, auch über mehrere Läufe und „Jetzt starten“. 0 = keine neuen Vorschläge. Wirkt ab dem nächsten Lauf.": "Applies to the whole day, across several runs and “Start now”. 0 = no new proposals. Takes effect from the next run.",
+  "{name}: gespeichert": "{name}: saved", "Feste Zeit": "Fixed time", "Aus": "Off", "Feste Zeiten": "Fixed times", "In Abständen": "At intervals", "Pausiert": "Paused",
+  "Uhrzeit": "Time", "Zeit entfernen": "Remove time", "+ Weitere Zeit": "+ Another time", "Eine Zeit, die heute schon vorbei ist, gilt erst ab morgen.": "A time that has already passed today only applies from tomorrow.",
+  "Alle": "Every", "Minuten": "minutes", "Die Statistik wird nicht mehr geschickt.": "The statistics are no longer sent.",
+  "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).": "The agent no longer runs on a schedule – only by hand (Start now).",
+  "Abbrechen": "Cancel", "ohne Zeitplan": "no schedule", "aus": "off", "Standard verwenden ({def})": "Use default ({def})",
+  "läuft gerade": "running", "noch nie gelaufen": "never run", "pausiert – nur von Hand": "paused – manual only", "· aus zeitplan.conf": "· from zeitplan.conf", "· Standard aus agent.json": "· default from agent.json",
+  "Nächster Lauf:": "Next run:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
+  "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.": "Starts via Slack (links and photos in the recipe channel) – needs no schedule.",
+  "Ändern": "Edit", "Jetzt senden": "Send now", "Läuft …": "Running …", "Startet gleich …": "Starting soon …", "Jetzt starten": "Start now",
+  "Keine Agenten gefunden.": "No agents found.", "Datei: {file} · Zeitzone: {tz}": "File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
+  "aus der Weboberfläche": "from this page", "aus Portainer/.env": "from Portainer/.env", "nicht gesetzt": "not set",
+  "Gespeichert – gilt nach dem Neustart": "Saved – applies after the restart",
+  "\n\nAchtung: {names} läuft gerade und wird abgebrochen.": "\n\nCaution: {names} is running and will be stopped.",
+  "Container jetzt neu starten? Die Oberfläche ist dann etwa eine halbe Minute nicht erreichbar.{busy}": "Restart the container now? This page will be unavailable for about half a minute.{busy}",
+  "Container startet neu …": "Container is restarting …", "Neu gestartet – neue Werte gelten": "Restarted – new values apply", "Neustart nötig": "Restart needed",
+  "automatisch / Standard": "automatic / default", "neuen Wert eingeben, um ihn zu ersetzen": "enter a new value to replace it", "Wert eingeben": "enter value",
+  "leer = {v} (Portainer)": "empty = {v} (Portainer)", "leer": "empty",
+  "Eintrag löschen – dann gilt wieder {v} aus Portainer": "Delete entry – then {v} from Portainer applies again", "Eintrag löschen": "Delete entry",
+  "{label}: Eintrag aus der Weboberfläche löschen?": "{label}: delete the entry from this page?",
+  "Geänderte Werte gelten erst nach einem Neustart.": "Changed values only apply after a restart.",
+  "Gerade läuft: {names} – am besten danach neu starten.": "Running now: {names} – best restart afterwards.", "Jetzt neu starten": "Restart now",
+  "Zugangsdaten sind gesperrt": "Credentials are locked",
+  "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu.": "Tokens and keys can only be changed here when this page has a password. Set WEB_PASSWORT in Portainer and restart the stack.",
+  "Änderungen speichern": "Save changes", "Nichts geändert": "Nothing changed",
+  "Einstellungen · Agenten": "Settings · Agents", "Zeitplan · Agenten": "Schedule · Agents", "Standard": "default",
+};
+const t = (s, v = {}) => (LANG === "en" && EN[s] ? EN[s] : s).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
+const LOCALE = () => (LANG === "en" ? "en-GB" : "de-DE");
+const DAY_EN = { Mo: "Mon", Di: "Tue", Mi: "Wed", Do: "Thu", Fr: "Fri", Sa: "Sat", So: "Sun" };
+const dayLabel = (d) => (LANG === "en" ? DAY_EN[d] : d);
+// Statische Texte der Seite in der Sprache setzen (nur vertrauenswürdige, feste Texte)
+function applyLang(lang) {
+  if (!lang || lang === LANG) return;
+  LANG = lang;
+  document.documentElement.lang = lang;
+  document.getElementById("tab-plan").textContent = t("Zeitplan");
+  document.getElementById("tab-env").textContent = t("Einstellungen");
+  document.getElementById("plan-title").textContent = t("Zeitplan");
+  document.getElementById("env-title").textContent = t("Einstellungen");
+  document.querySelector(".nav strong")?.replaceChildren(t("Agenten"));
+  for (const [id, en] of Object.entries(SUBS_EN)) {
+    const node = document.getElementById(id);
+    SUBS_DE[id] ??= node.innerHTML;
+    node.innerHTML = lang === "en" ? en : SUBS_DE[id];
+  }
+  view(); tick();
+  if (data) render();
+}
+const SUBS_DE = {};
+const SUBS_EN = {
+  "plan-sub": "When your agents run. Changes go to <code>zeitplan.conf</code> and apply within 30 seconds – no restart needed.",
+  "env-sub": "Credentials and options. Values set here take precedence over the environment variables from Portainer and are stored in <code>daten/umgebung.json</code>. They apply after a container restart.",
+};
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const OPTION_LABEL = { de: "Deutsch", en: "English" };
 const RESULT = { ok: ["erfolgreich", "ok"], fehler: ["fehlgeschlagen", "err"], "nichts zu tun": ["nichts zu tun", "idle"] };
 let data = null;
 let editing = null; // { id, mode, slots: [{days:Set, time}], every }
 
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const fmt = (iso) => iso ? new Date(iso).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+const fmt = (iso) => iso ? new Date(iso).toLocaleString(LOCALE(), { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
 
 function toast(msg, error) {
   const t = document.getElementById("toast");
@@ -142,10 +208,10 @@ function parseSlot(s) {
 const slotText = (s) => (s.days.size === 7 ? "" : DAYS.filter((d) => s.days.has(d)).join(",") + " ") + s.time;
 function describe(s) {
   const p = parseSlot(s); if (!p) return s;
-  if (p.every) return `alle ${p.every} Minuten`;
+  if (p.every) return t("alle {n} Minuten", { n: p.every });
   const d = DAYS.filter((x) => p.days.has(x));
-  const days = d.length === 7 ? "täglich" : d.join(", ");
-  return `${days} ${p.time} Uhr`;
+  const days = d.length === 7 ? t("täglich") : d.map(dayLabel).join(", ");
+  return t("{days} {time} Uhr", { days, time: p.time });
 }
 
 function startEdit(item) {
@@ -168,49 +234,49 @@ async function save(item) {
   if (e.mode === "off") payload = { mode: "off" };
   else if (e.mode === "every") payload = { mode: "slots", slots: [`alle ${Math.max(1, Number(e.every) || 1)} min`] };
   else {
-    if (e.slots.some((s) => !s.days.size)) { e.error = "Jede Zeit braucht mindestens einen Wochentag."; return render(); }
-    if (e.slots.some((s) => !/^\d{2}:\d{2}$/.test(s.time))) { e.error = "Bitte eine Uhrzeit eintragen."; return render(); }
+    if (e.slots.some((s) => !s.days.size)) { e.error = t("Jede Zeit braucht mindestens einen Wochentag."); return render(); }
+    if (e.slots.some((s) => !/^\d{2}:\d{2}$/.test(s.time))) { e.error = t("Bitte eine Uhrzeit eintragen."); return render(); }
     payload = { mode: "slots", slots: e.slots.map(slotText) };
   }
   await send(item, payload);
 }
 async function startNow(item, button) {
   const isStats = item.kind === "statistik";
-  if (!confirm(isStats ? "Rezept-Statistik jetzt in den Slack-Kanal schicken?" : `${item.name} jetzt starten?`)) return;
-  if (isStats && button) { button.disabled = true; button.textContent = "Wird gesendet …"; }
+  if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : t("{name} jetzt starten?", { name: item.name }))) return;
+  if (isStats && button) { button.disabled = true; button.textContent = t("Wird gesendet …"); }
   try {
     const r = await fetch(`api/run/${encodeURIComponent(item.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; render();
-    toast(isStats ? "Rezept-Statistik: in Slack gesendet" : `${item.name}: startet innerhalb von 30 Sekunden`);
+    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
   } catch (err) { toast(err.message, true); render(); }
 }
 // Wie viele Rezepte der Qualitäts-Agent pro Tag prüft
 async function savePerDay(item, input, button) {
   const value = Number(input.value);
-  if (!Number.isInteger(value) || value < 0 || value > item.perDay.max) return toast(`Bitte eine ganze Zahl von 0 bis ${item.perDay.max}`, true);
+  if (!Number.isInteger(value) || value < 0 || value > item.perDay.max) return toast(t("Bitte eine ganze Zahl von 0 bis {max}", { max: item.perDay.max }), true);
   button.disabled = true;
   try {
     const r = await fetch("api/pro-tag", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; render();
-    toast(`${item.name}: ${value} ${value === 1 ? "Rezept" : "Rezepte"} pro Tag`);
+    toast(t(value === 1 ? "{name}: {n} Rezept pro Tag" : "{name}: {n} Rezepte pro Tag", { name: item.name, n: value }));
   } catch (err) { toast(err.message, true); button.disabled = false; }
 }
 function perDayBox(item) {
   const box = el("div", "perday");
   const id = `perday-${item.id}`;
-  const label = el("label", null, "Rezepte pro Tag prüfen:"); label.htmlFor = id;
+  const label = el("label", null, t("Rezepte pro Tag prüfen:")); label.htmlFor = id;
   const n = el("input", "field"); n.type = "number"; n.id = id; n.min = "0"; n.max = String(item.perDay.max); n.step = "1"; n.value = item.perDay.value;
-  const ok = el("button", "btn", "Speichern"); ok.type = "button"; ok.disabled = true;
+  const ok = el("button", "btn", t("Speichern")); ok.type = "button"; ok.disabled = true;
   n.oninput = () => (ok.disabled = n.value === String(item.perDay.value));
   n.onkeydown = (ev) => { if (ev.key === "Enter" && !ok.disabled) savePerDay(item, n, ok); };
   ok.onclick = () => savePerDay(item, n, ok);
-  box.append(label, n, ok, el("span", "source", item.perDay.source === "Weboberfläche" ? "" : `· ${item.perDay.source}`));
+  box.append(label, n, ok, el("span", "source", item.perDay.source === "Weboberfläche" ? "" : `· ${t(item.perDay.source)}`));
   const wrap = el("div"); wrap.style.display = "grid"; wrap.style.gap = "var(--xs)";
-  wrap.append(box, el("p", "hint", "Gilt für den ganzen Tag, auch über mehrere Läufe und „Jetzt starten“. 0 = keine neuen Vorschläge. Wirkt ab dem nächsten Lauf."));
+  wrap.append(box, el("p", "hint", t("Gilt für den ganzen Tag, auch über mehrere Läufe und „Jetzt starten“. 0 = keine neuen Vorschläge. Wirkt ab dem nächsten Lauf.")));
   return wrap;
 }
 
@@ -220,7 +286,7 @@ async function send(item, payload) {
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; editing = null; render();
-    toast(`${item.name}: gespeichert`);
+    toast(t("{name}: gespeichert", { name: item.name }));
   } catch (err) {
     if (editing) { editing.error = err.message; render(); } else toast(err.message, true);
   }
@@ -232,7 +298,7 @@ function editor(item) {
   const seg = el("div", "seg");
   const modes = item.kind === "statistik" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
   for (const [m, label] of modes) {
-    const b = el("button", null, label); b.type = "button"; b.setAttribute("aria-pressed", String(e.mode === m));
+    const b = el("button", null, t(label)); b.type = "button"; b.setAttribute("aria-pressed", String(e.mode === m));
     b.onclick = () => { e.mode = m; e.error = ""; render(); };
     seg.append(b);
   }
@@ -243,41 +309,41 @@ function editor(item) {
       const row = el("div", "slot");
       const days = el("div", "days");
       for (const d of DAYS) {
-        const b = el("button", "day", d); b.type = "button"; b.setAttribute("aria-pressed", String(s.days.has(d)));
+        const b = el("button", "day", dayLabel(d)); b.type = "button"; b.setAttribute("aria-pressed", String(s.days.has(d)));
         b.onclick = () => { s.days.has(d) ? s.days.delete(d) : s.days.add(d); render(); };
         days.append(b);
       }
-      const t = el("input", "field"); t.type = "time"; t.value = s.time; t.setAttribute("aria-label", "Uhrzeit");
-      t.oninput = () => (s.time = t.value);
-      row.append(days, t);
-      if (e.slots.length > 1) { const x = el("button", "x", "×"); x.type = "button"; x.title = "Zeit entfernen"; x.onclick = () => { e.slots.splice(i, 1); render(); }; row.append(x); }
+      const ti = el("input", "field"); ti.type = "time"; ti.value = s.time; ti.setAttribute("aria-label", t("Uhrzeit"));
+      ti.oninput = () => (s.time = ti.value);
+      row.append(days, ti);
+      if (e.slots.length > 1) { const x = el("button", "x", "×"); x.type = "button"; x.title = t("Zeit entfernen"); x.onclick = () => { e.slots.splice(i, 1); render(); }; row.append(x); }
       box.append(row);
     });
     if (item.kind !== "statistik") {
-      const add = el("button", "link", "+ Weitere Zeit"); add.type = "button";
+      const add = el("button", "link", t("+ Weitere Zeit")); add.type = "button";
       add.onclick = () => { e.slots.push({ days: new Set(DAYS), time: "12:00" }); render(); };
       box.append(add);
     }
-    box.append(el("p", "hint", "Eine Zeit, die heute schon vorbei ist, gilt erst ab morgen."));
+    box.append(el("p", "hint", t("Eine Zeit, die heute schon vorbei ist, gilt erst ab morgen.")));
   } else if (e.mode === "every") {
     const row = el("div", "slot");
-    row.append(el("span", null, "Alle"));
-    const n = el("input", "field"); n.type = "number"; n.min = "1"; n.value = e.every; n.setAttribute("aria-label", "Minuten");
+    row.append(el("span", null, t("Alle")));
+    const n = el("input", "field"); n.type = "number"; n.min = "1"; n.value = e.every; n.setAttribute("aria-label", t("Minuten"));
     n.oninput = () => (e.every = n.value);
-    row.append(n, el("span", null, "Minuten"));
+    row.append(n, el("span", null, t("Minuten")));
     box.append(row);
   } else {
-    box.append(el("p", "hint", item.kind === "statistik" ? "Die Statistik wird nicht mehr geschickt." : "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten)."));
+    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
   }
   if (e.error) box.append(el("p", "err", e.error));
 
   const actions = el("div", "actions");
-  const ok = el("button", "btn primary", "Speichern"); ok.type = "button"; ok.onclick = () => save(item);
-  const cancel = el("button", "link", "Abbrechen"); cancel.type = "button"; cancel.onclick = () => { editing = null; render(); };
+  const ok = el("button", "btn primary", t("Speichern")); ok.type = "button"; ok.onclick = () => save(item);
+  const cancel = el("button", "link", t("Abbrechen")); cancel.type = "button"; cancel.onclick = () => { editing = null; render(); };
   actions.append(ok, cancel, el("span", "spacer"));
   if (item.source === "zeitplan.conf") {
-    const def = item.default.enabled ? (item.default.schedule.map(describe).join(" · ") || "ohne Zeitplan") : "aus";
-    const reset = el("button", "link", `Standard verwenden (${def})`); reset.type = "button";
+    const def = item.default.enabled ? (item.default.schedule.map(describe).join(" · ") || t("ohne Zeitplan")) : t("aus");
+    const reset = el("button", "link", t("Standard verwenden ({def})", { def })); reset.type = "button";
     reset.onclick = () => send(item, { mode: "default" });
     actions.append(reset);
   }
@@ -294,42 +360,42 @@ function card(item) {
   head.append(left);
   if (item.kind === "agent") {
     const [text, cls] = item.running ? ["läuft gerade", "run"] : item.last ? RESULT[item.last.result] || [item.last.result, "idle"] : ["noch nie gelaufen", "idle"];
-    head.append(el("span", "badge " + cls, text));
+    head.append(el("span", "badge " + cls, t(text)));
   }
   c.append(head);
 
   if (item.error) { c.append(el("p", "err", item.error)); return c; }
 
   const chips = el("div", "chips");
-  if (!item.enabled) chips.append(el("span", "chip", item.kind === "statistik" ? "aus" : "pausiert – nur von Hand"));
-  else if (!item.schedule.length) chips.append(el("span", "chip", "ohne Zeitplan"));
+  if (!item.enabled) chips.append(el("span", "chip", item.kind === "statistik" ? t("aus") : t("pausiert – nur von Hand")));
+  else if (!item.schedule.length) chips.append(el("span", "chip", t("ohne Zeitplan")));
   else item.schedule.forEach((s) => chips.append(el("span", "chip", describe(s))));
-  chips.append(el("span", "source", item.source === "zeitplan.conf" ? "· aus zeitplan.conf" : item.source === "agent.json" ? "· Standard aus agent.json" : `· ${item.source}`));
+  chips.append(el("span", "source", item.source === "zeitplan.conf" ? t("· aus zeitplan.conf") : item.source === "agent.json" ? t("· Standard aus agent.json") : `· ${t(item.source)}`));
   c.append(chips);
 
   const meta = el("div", "meta");
-  const add = (label, value) => { if (!value) return; const s = el("span"); s.append(el("b", null, label + " "), document.createTextNode(value)); meta.append(s); };
+  const add = (label, value) => { if (!value) return; const s = el("span"); s.append(el("b", null, t(label) + " "), document.createTextNode(value)); meta.append(s); };
   add("Nächster Lauf:", item.next);
   if (item.kind === "agent") {
     if (item.running) add("Seit:", fmt(item.since));
     if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
-    if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · nichts zu tun`);
+    if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · ${t("nichts zu tun")}`);
   }
   c.append(meta);
   if (item.perDay) c.append(perDayBox(item));
 
   if (editing?.id === item.id) c.append(editor(item));
   else if (item.kind === "agent" && !item.manual && !item.schedule.length) {
-    c.append(el("p", "hint", "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan."));
+    c.append(el("p", "hint", t("Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.")));
   } else {
-    const b = el("button", "btn", "Ändern"); b.type = "button"; b.onclick = () => startEdit(item);
+    const b = el("button", "btn", t("Ändern")); b.type = "button"; b.onclick = () => startEdit(item);
     const row = el("div", "actions"); row.append(b);
     if (item.kind === "statistik") {
-      const go = el("button", "btn", item.running ? "Wird gesendet …" : "Jetzt senden"); go.type = "button";
+      const go = el("button", "btn", item.running ? t("Wird gesendet …") : t("Jetzt senden")); go.type = "button";
       go.disabled = item.running; go.onclick = () => startNow(item, go);
       row.append(go);
     } else if (item.kind === "agent" && item.manual) {
-      const go = el("button", "btn", item.running ? "Läuft …" : item.queued ? "Startet gleich …" : "Jetzt starten"); go.type = "button";
+      const go = el("button", "btn", item.running ? t("Läuft …") : item.queued ? t("Startet gleich …") : t("Jetzt starten")); go.type = "button";
       go.disabled = item.running || item.queued; go.onclick = () => startNow(item);
       row.append(go);
     }
@@ -340,8 +406,8 @@ function card(item) {
 
 function render() {
   const list = document.getElementById("list");
-  list.replaceChildren(...(data?.items?.length ? data.items.map(card) : [el("div", "empty", "Keine Agenten gefunden.")]));
-  if (data) document.getElementById("foot").textContent = `Datei: ${data.file} · Zeitzone: ${data.tz}`;
+  list.replaceChildren(...(data?.items?.length ? data.items.map(card) : [el("div", "empty", t("Keine Agenten gefunden."))]));
+  if (data) document.getElementById("foot").textContent = t("Datei: {file} · Zeitzone: {tz}", { file: data.file, tz: data.tz });
 }
 
 async function load() {
@@ -349,8 +415,8 @@ async function load() {
   try {
     const r = await fetch("api/plan", { cache: "no-store" });
     if (!r.ok) throw new Error(r.statusText);
-    data = await r.json(); render();
-  } catch (err) { toast(`Laden fehlgeschlagen: ${err.message}`, true); }
+    data = await r.json(); applyLang(data.lang); render();
+  } catch (err) { toast(t("Laden fehlgeschlagen: {msg}", { msg: err.message }), true); }
 }
 // ---------- Einstellungen ----------
 let env = null;
@@ -361,8 +427,8 @@ async function loadEnv() {
   try {
     const r = await fetch("api/umgebung", { cache: "no-store" });
     if (!r.ok) throw new Error(r.statusText);
-    env = await r.json(); changes = {}; renderEnv();
-  } catch (err) { toast(`Laden fehlgeschlagen: ${err.message}`, true); }
+    env = await r.json(); changes = {}; applyLang(env.lang); renderEnv();
+  } catch (err) { toast(t("Laden fehlgeschlagen: {msg}", { msg: err.message }), true); }
 }
 async function saveEnv(values) {
   try {
@@ -370,18 +436,18 @@ async function saveEnv(values) {
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     env = j; changes = {}; renderEnv();
-    toast("Gespeichert – gilt nach dem Neustart");
+    toast(t("Gespeichert – gilt nach dem Neustart"));
   } catch (err) { toast(err.message, true); }
 }
 async function restart() {
-  const busy = env.running.length ? `\n\nAchtung: ${env.running.join(", ")} läuft gerade und wird abgebrochen.` : "";
-  if (!confirm(`Container jetzt neu starten? Die Oberfläche ist dann etwa eine halbe Minute nicht erreichbar.${busy}`)) return;
+  const busy = env.running.length ? t("\n\nAchtung: {names} läuft gerade und wird abgebrochen.", { names: env.running.join(", ") }) : "";
+  if (!confirm(t("Container jetzt neu starten? Die Oberfläche ist dann etwa eine halbe Minute nicht erreichbar.{busy}", { busy }))) return;
   try {
     await fetch("api/neustart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   } catch {}
-  toast("Container startet neu …");
+  toast(t("Container startet neu …"));
   const wait = async () => {
-    try { const r = await fetch("api/umgebung", { cache: "no-store" }); if (r.ok) { env = await r.json(); renderEnv(); return toast("Neu gestartet – neue Werte gelten"); } } catch {}
+    try { const r = await fetch("api/umgebung", { cache: "no-store" }); if (r.ok) { env = await r.json(); LANG = ""; applyLang(env.lang); renderEnv(); return toast(t("Neu gestartet – neue Werte gelten")); } } catch {}
     setTimeout(wait, 3000);
   };
   setTimeout(wait, 5000);
@@ -392,27 +458,27 @@ function envRow(f) {
   const id = `env-${f.key}`;
   const label = el("label", null, f.label); label.htmlFor = id;
   const now = el("div", "now");
-  now.append(el("span", "chip", SOURCE[f.source] ?? f.source));
+  now.append(el("span", "chip", t(SOURCE[f.source] ?? f.source)));
   if (f.shown) now.append(el("code", null, f.shown));
-  if (f.pending) now.append(el("span", "badge err", "Neustart nötig"));
+  if (f.pending) now.append(el("span", "badge err", t("Neustart nötig")));
   let input;
   if (f.options) {
     input = el("select", "field");
-    for (const o of f.options) { const opt = el("option", null, o || "automatisch / Standard"); opt.value = o; opt.selected = o === f.value; input.append(opt); }
+    for (const o of f.options) { const opt = el("option", null, OPTION_LABEL[o] || o || t("automatisch / Standard")); opt.value = o; opt.selected = o === f.value; input.append(opt); }
     input.onchange = () => (changes[f.key] = input.value);
   } else {
     input = el("input", "field");
     input.type = f.secret ? "password" : "text"; input.autocomplete = "off"; input.spellcheck = false;
-    if (f.secret) { input.placeholder = f.shown ? "neuen Wert eingeben, um ihn zu ersetzen" : "Wert eingeben"; input.disabled = !env.secrets; }
-    else { input.value = f.value; input.placeholder = f.env ? `leer = ${f.env} (Portainer)` : "leer"; }
+    if (f.secret) { input.placeholder = f.shown ? t("neuen Wert eingeben, um ihn zu ersetzen") : t("Wert eingeben"); input.disabled = !env.secrets; }
+    else { input.value = f.value; input.placeholder = f.env ? t("leer = {v} (Portainer)", { v: f.env }) : t("leer"); }
     input.oninput = () => { if (f.secret && !input.value) delete changes[f.key]; else changes[f.key] = input.value; };
   }
   input.id = id; input.name = f.key;
   row.append(label, now, input);
   if (f.hint) row.append(el("p", "hint", f.hint));
   if (f.source === "Weboberfläche" && (f.secret || f.options)) {
-    const reset = el("button", "link", f.env ? `Eintrag löschen – dann gilt wieder ${f.env} aus Portainer` : "Eintrag löschen"); reset.type = "button";
-    reset.onclick = () => { if (confirm(`${f.label}: Eintrag aus der Weboberfläche löschen?`)) saveEnv({ [f.key]: "" }); };
+    const reset = el("button", "link", f.env ? t("Eintrag löschen – dann gilt wieder {v} aus Portainer", { v: f.env }) : t("Eintrag löschen")); reset.type = "button";
+    reset.onclick = () => { if (confirm(t("{label}: Eintrag aus der Weboberfläche löschen?", { label: f.label }))) saveEnv({ [f.key]: "" }); };
     row.append(reset);
   }
   return row;
@@ -423,14 +489,14 @@ function renderEnv() {
   const parts = [];
   if (env.fields.some((f) => f.pending)) {
     const b = el("div", "banner");
-    b.append(el("b", null, "Geänderte Werte gelten erst nach einem Neustart."));
-    if (env.running.length) b.append(el("p", "hint", `Gerade läuft: ${env.running.join(", ")} – am besten danach neu starten.`));
-    const go = el("button", "btn primary", "Jetzt neu starten"); go.type = "button"; go.onclick = restart; go.style.justifySelf = "start";
+    b.append(el("b", null, t("Geänderte Werte gelten erst nach einem Neustart.")));
+    if (env.running.length) b.append(el("p", "hint", t("Gerade läuft: {names} – am besten danach neu starten.", { names: env.running.join(", ") })));
+    const go = el("button", "btn primary", t("Jetzt neu starten")); go.type = "button"; go.onclick = restart; go.style.justifySelf = "start";
     b.append(go); parts.push(b);
   }
   if (!env.secrets) {
     const b = el("div", "banner info");
-    b.append(el("b", null, "Zugangsdaten sind gesperrt"), el("p", "hint", "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu."));
+    b.append(el("b", null, t("Zugangsdaten sind gesperrt")), el("p", "hint", t("Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu.")));
     parts.push(b);
   }
   const groups = [...new Set(env.fields.map((f) => f.group))];
@@ -441,9 +507,9 @@ function renderEnv() {
     parts.push(c);
   }
   const bar = el("div", "sticky");
-  bar.append(el("span", null, "Änderungen speichern"));
-  const ok = el("button", "btn primary", "Speichern"); ok.type = "button";
-  ok.onclick = () => (Object.keys(changes).length ? saveEnv(changes) : toast("Nichts geändert"));
+  bar.append(el("span", null, t("Änderungen speichern")));
+  const ok = el("button", "btn primary", t("Speichern")); ok.type = "button";
+  ok.onclick = () => (Object.keys(changes).length ? saveEnv(changes) : toast(t("Nichts geändert")));
   bar.append(ok); parts.push(bar);
   box.replaceChildren(...parts);
 }
@@ -454,13 +520,13 @@ function view() {
   document.getElementById("view-env").hidden = !settings;
   document.getElementById("tab-plan").setAttribute("aria-current", settings ? "false" : "page");
   document.getElementById("tab-env").setAttribute("aria-current", settings ? "page" : "false");
-  document.title = settings ? "Einstellungen · Agenten" : "Zeitplan · Agenten";
+  document.title = settings ? t("Einstellungen · Agenten") : t("Zeitplan · Agenten");
   if (settings && !Object.keys(changes).length) loadEnv();
 }
 window.addEventListener("hashchange", view);
 view();
 
-function tick() { document.getElementById("clock").textContent = new Date().toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
+function tick() { document.getElementById("clock").textContent = new Date().toLocaleString(LOCALE(), { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
 tick(); setInterval(tick, 30000);
 load(); setInterval(load, 30000);
 </script>

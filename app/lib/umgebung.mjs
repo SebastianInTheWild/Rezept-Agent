@@ -11,27 +11,29 @@ import { dirname, join } from "node:path";
 const FILE = join(process.env.DATA_DIR || "/data", "umgebung.json");
 
 // Was in der Oberfläche einstellbar ist. Bewusst nicht dabei: WEB_PASSWORT (sonst kann man sich aussperren) und Pfade.
+// en = [Gruppe, Beschriftung, Hinweis] auf Englisch (die Oberfläche zeigt die Sprache aus SPRACHE)
 export const FIELDS = [
-  { group: "Claude", key: "CLAUDE_CODE_OAUTH_TOKEN", label: "Claude-Token", secret: true, hint: "auf einem PC mit Claude Code „claude setup-token“ ausführen" },
-  { group: "Claude", key: "CLAUDE_MODEL", label: "Claude-Modell", hint: "leer = Standard von Claude Code" },
-  { group: "Tandoor", key: "TANDOOR_URL", label: "Tandoor-Adresse", hint: "z. B. https://app.tandoor.dev" },
-  { group: "Tandoor", key: "TANDOOR_TOKEN", label: "Tandoor-Token", secret: true, hint: "Tandoor → Einstellungen → API, Scope „read write“" },
-  { group: "Slack", key: "SLACK_BOT_TOKEN", label: "Bot-Token", secret: true, hint: "xoxb-…" },
-  { group: "Slack", key: "SLACK_APP_TOKEN", label: "App-Token (Socket Mode)", secret: true, hint: "xapp-…" },
-  { group: "Slack", key: "SLACK_CHANNEL", label: "Rezept-Kanal", hint: "Kanal-ID, z. B. C0123ABCD" },
-  { group: "Slack", key: "SLACK_APP_ID", label: "App-ID (für das Manifest)", hint: "A0…, unter api.slack.com/apps → Basic Information" },
-  { group: "Slack", key: "SLACK_CONFIG_TOKEN", label: "Refresh-Token der App-Konfiguration", secret: true, hint: "xoxe-1-…, unter api.slack.com/apps → „Your App Configuration Tokens“" },
-  { group: "KI-Fotos", key: "BILD_ANBIETER", label: "Anbieter", options: ["", "google", "cloudflare", "openai"], hint: "leer = automatisch: Google vor Cloudflare vor OpenAI" },
-  { group: "KI-Fotos", key: "BILD_EINHEITLICH", label: "Einheitlicher Bildstil", options: ["", "an", "aus"], hint: "leer = an: neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen, wenn vorhanden" },
-  { group: "KI-Fotos", key: "GEMINI_API_KEY", label: "Google-API-Schlüssel", secret: true, hint: "aistudio.google.com → „Get API key“" },
-  { group: "KI-Fotos", key: "GOOGLE_BILD_MODELL", label: "Google-Modell", options: ["", "gemini-nano-banana-2.1", "gemini-2.5-flash-image", "gemini-3-pro-image"], hint: "leer = gemini-nano-banana-2.1" },
-  { group: "KI-Fotos", key: "CF_ACCOUNT_ID", label: "Cloudflare-Account-ID" },
-  { group: "KI-Fotos", key: "CF_AI_TOKEN", label: "Cloudflare-Token", secret: true, hint: "Vorlage „Workers AI“, für die Neuronen-Anzeige zusätzlich „Account Analytics: Read“" },
-  { group: "KI-Fotos", key: "OPENAI_API_KEY", label: "OpenAI-API-Schlüssel", secret: true },
-  { group: "KI-Fotos", key: "BILD_PRO_TAG", label: "Höchstens Bilder pro Tag", pattern: "^\\d*$", hint: "leer = 10; gilt nicht für /bild-neu und /bild-alle" },
-  { group: "Videos (Reels, Shorts)", key: "GEMINI_VIDEO_MODELL", label: "Gemini-Modell für Videos", hint: "leer = gemini-flash-latest (immer das aktuelle Flash-Modell); nutzt den Google-API-Schlüssel von oben" },
-  { group: "Videos (Reels, Shorts)", key: "VIDEO_MAX_SEKUNDEN", label: "Längstes Video in Sekunden", pattern: "^\\d*$", hint: "leer = 600; längere Videos: nur die Beschreibung" },
-  { group: "Abgleich", key: "AGENTS_SYNC", label: "agents/ aus GitHub holen alle … Minuten", pattern: "^(\\d*|aus)$", hint: "leer = 10, „aus“ = nie" },
+  { group: "Allgemein", key: "SPRACHE", label: "Sprache", options: ["", "de", "en"], hint: "Sprache für neue Rezepte, Slack-Nachrichten und diese Oberfläche (leer = Deutsch). Gilt nach dem Neustart.", en: ["General", "Language", "Language for new recipes, Slack messages and this page (empty = German). Takes effect after the restart."] },
+  { group: "Claude", key: "CLAUDE_CODE_OAUTH_TOKEN", label: "Claude-Token", secret: true, hint: "auf einem PC mit Claude Code „claude setup-token“ ausführen", en: ["Claude", "Claude token", "run “claude setup-token” on a computer with Claude Code"] },
+  { group: "Claude", key: "CLAUDE_MODEL", label: "Claude-Modell", hint: "leer = Standard von Claude Code", en: ["Claude", "Claude model", "empty = Claude Code default"] },
+  { group: "Tandoor", key: "TANDOOR_URL", label: "Tandoor-Adresse", hint: "z. B. https://app.tandoor.dev", en: ["Tandoor", "Tandoor address", "e.g. https://app.tandoor.dev"] },
+  { group: "Tandoor", key: "TANDOOR_TOKEN", label: "Tandoor-Token", secret: true, hint: "Tandoor → Einstellungen → API, Scope „read write“", en: ["Tandoor", "Tandoor token", "Tandoor → Settings → API, scope “read write”"] },
+  { group: "Slack", key: "SLACK_BOT_TOKEN", label: "Bot-Token", secret: true, hint: "xoxb-…", en: ["Slack", "Bot token", "xoxb-…"] },
+  { group: "Slack", key: "SLACK_APP_TOKEN", label: "App-Token (Socket Mode)", secret: true, hint: "xapp-…", en: ["Slack", "App token (Socket Mode)", "xapp-…"] },
+  { group: "Slack", key: "SLACK_CHANNEL", label: "Rezept-Kanal", hint: "Kanal-ID, z. B. C0123ABCD", en: ["Slack", "Recipe channel", "channel ID, e.g. C0123ABCD"] },
+  { group: "Slack", key: "SLACK_APP_ID", label: "App-ID (für das Manifest)", hint: "A0…, unter api.slack.com/apps → Basic Information", en: ["Slack", "App ID (for the manifest)", "A0…, under api.slack.com/apps → Basic Information"] },
+  { group: "Slack", key: "SLACK_CONFIG_TOKEN", label: "Refresh-Token der App-Konfiguration", secret: true, hint: "xoxe-1-…, unter api.slack.com/apps → „Your App Configuration Tokens“", en: ["Slack", "App configuration refresh token", "xoxe-1-…, under api.slack.com/apps → “Your App Configuration Tokens”"] },
+  { group: "KI-Fotos", key: "BILD_ANBIETER", label: "Anbieter", options: ["", "google", "cloudflare", "openai"], hint: "leer = automatisch: Google vor Cloudflare vor OpenAI", en: ["AI photos", "Provider", "empty = automatic: Google before Cloudflare before OpenAI"] },
+  { group: "KI-Fotos", key: "BILD_EINHEITLICH", label: "Einheitlicher Bildstil", options: ["", "an", "aus"], hint: "leer = an: neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen, wenn vorhanden", en: ["AI photos", "Uniform picture style", "empty = on (an): new recipes always get an AI photo in the style from agents/bild-stil.md; off (aus) = use the source photo if there is one"] },
+  { group: "KI-Fotos", key: "GEMINI_API_KEY", label: "Google-API-Schlüssel", secret: true, hint: "aistudio.google.com → „Get API key“", en: ["AI photos", "Google API key", "aistudio.google.com → “Get API key”"] },
+  { group: "KI-Fotos", key: "GOOGLE_BILD_MODELL", label: "Google-Modell", options: ["", "gemini-nano-banana-2.1", "gemini-2.5-flash-image", "gemini-3-pro-image"], hint: "leer = gemini-nano-banana-2.1", en: ["AI photos", "Google model", "empty = gemini-nano-banana-2.1"] },
+  { group: "KI-Fotos", key: "CF_ACCOUNT_ID", label: "Cloudflare-Account-ID", en: ["AI photos", "Cloudflare account ID", ""] },
+  { group: "KI-Fotos", key: "CF_AI_TOKEN", label: "Cloudflare-Token", secret: true, hint: "Vorlage „Workers AI“, für die Neuronen-Anzeige zusätzlich „Account Analytics: Read“", en: ["AI photos", "Cloudflare token", "template “Workers AI”, plus “Account Analytics: Read” for the neuron display"] },
+  { group: "KI-Fotos", key: "OPENAI_API_KEY", label: "OpenAI-API-Schlüssel", secret: true, en: ["AI photos", "OpenAI API key", ""] },
+  { group: "KI-Fotos", key: "BILD_PRO_TAG", label: "Höchstens Bilder pro Tag", pattern: "^\\d*$", hint: "leer = 10; gilt nicht für /bild-neu und /bild-alle", en: ["AI photos", "Maximum pictures per day", "empty = 10; does not apply to /new-image and /all-images"] },
+  { group: "Videos (Reels, Shorts)", key: "GEMINI_VIDEO_MODELL", label: "Gemini-Modell für Videos", hint: "leer = gemini-flash-latest (immer das aktuelle Flash-Modell); nutzt den Google-API-Schlüssel von oben", en: ["Videos (reels, shorts)", "Gemini model for videos", "empty = gemini-flash-latest (always the current Flash model); uses the Google API key above"] },
+  { group: "Videos (Reels, Shorts)", key: "VIDEO_MAX_SEKUNDEN", label: "Längstes Video in Sekunden", pattern: "^\\d*$", hint: "leer = 600; längere Videos: nur die Beschreibung", en: ["Videos (reels, shorts)", "Longest video in seconds", "empty = 600; longer videos: description only"] },
+  { group: "Abgleich", key: "AGENTS_SYNC", label: "agents/ aus GitHub holen alle … Minuten", pattern: "^(\\d*|aus)$", hint: "leer = 10, „aus“ = nie", en: ["Sync", "Fetch agents/ from GitHub every … minutes", "empty = 10, “aus” = never"] },
 ];
 const KEYS = new Set(FIELDS.map((f) => f.key));
 
@@ -50,12 +52,16 @@ const readFile = () => {
 const saved = readFile();
 for (const [k, v] of Object.entries(saved)) if (KEYS.has(k) && v !== "") process.env[k] = String(v);
 
+// Fehlermeldungen in der eingestellten Sprache (ohne i18n.mjs, damit dieses Modul keine Abhängigkeiten hat)
+const tr = (de, en) => (/^en/i.test(process.env.SPRACHE || "") ? en : de);
 const mask = (v) => (v.length > 8 ? `••••${v.slice(-4)}` : "••••");
 
 /** Für die Oberfläche: Werte und Herkunft, Geheimnisse nur maskiert. */
 export function envOverview() {
   const file = readFile();
-  return FIELDS.map((f) => {
+  const en = /^en/i.test(process.env.SPRACHE || "");
+  return FIELDS.map(({ en: tr, ...f }) => {
+    if (en && tr) Object.assign(f, { group: tr[0], label: tr[1], hint: tr[2] || f.hint || "" });
     const own = file[f.key] ?? "";
     const env = ORIGINAL[f.key];
     const value = own || env;
@@ -76,11 +82,11 @@ export function setEnvValues(changes) {
   const file = readFile();
   for (const [k, raw] of Object.entries(changes || {})) {
     const f = FIELDS.find((x) => x.key === k);
-    if (!f) throw new Error(`${k} ist nicht einstellbar`);
+    if (!f) throw new Error(tr(`${k} ist nicht einstellbar`, `${k} can't be set here`));
     const v = String(raw ?? "").trim();
-    if (/[\r\n]/.test(v) || v.length > 2000) throw new Error(`${f.label}: ungültiger Wert`);
-    if (v && f.options && !f.options.includes(v)) throw new Error(`${f.label}: erlaubt sind ${f.options.filter(Boolean).join(", ")}`);
-    if (v && f.pattern && !new RegExp(f.pattern).test(v)) throw new Error(`${f.label}: ungültiger Wert`);
+    if (/[\r\n]/.test(v) || v.length > 2000) throw new Error(`${f.label}: ${tr("ungültiger Wert", "invalid value")}`);
+    if (v && f.options && !f.options.includes(v)) throw new Error(`${f.label}: ${tr("erlaubt sind", "allowed are")} ${f.options.filter(Boolean).join(", ")}`);
+    if (v && f.pattern && !new RegExp(f.pattern).test(v)) throw new Error(`${f.label}: ${tr("ungültiger Wert", "invalid value")}`);
     if (v) file[k] = v;
     else delete file[k];
   }

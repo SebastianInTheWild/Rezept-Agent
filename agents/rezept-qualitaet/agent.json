@@ -1,9 +1,13 @@
 {
   "name": "Rezept-Qualität",
+  "name_en": "Recipe quality",
   "description": "Prüft Rezepte ohne Status-Schlagwort gegen unseren Standard und schickt Verbesserungen als Vorschlag in Slack.",
+  "description_en": "Checks recipes against the house standard and sends improvements as proposals to Slack.",
   "icon": "mdi:clipboard-check-outline",
   "enabled": true,
-  "schedule": ["10:00"],
+  "schedule": [
+    "10:00"
+  ],
   "precheck": "node tandoor.mjs pending --count",
   "allowedTools": [
     "Bash(node tandoor.mjs pending)",

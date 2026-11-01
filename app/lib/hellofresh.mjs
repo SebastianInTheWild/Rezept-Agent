@@ -6,6 +6,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { L } from "./i18n.mjs";
 
 export const isHelloFresh = (url) => /^https?:\/\/(www\.)?hellofresh\.[a-z.]+\//i.test(url);
 const IMG = "https://img.hellofresh.com/f_jpg,fl_lossy,q_auto,w_1200/hellofresh_s3";
@@ -99,9 +100,9 @@ export async function fetchHelloFresh(url, dir) {
   try {
     res = await fetch(url, { headers: { "User-Agent": UA, "Accept-Language": "de-DE,de;q=0.9", Accept: "text/html" }, redirect: "follow" });
   } catch (e) {
-    return { ok: false, msg: `HelloFresh nicht erreichbar: ${e.message}` };
+    return { ok: false, msg: `${L("HelloFresh nicht erreichbar", "HelloFresh not reachable")}: ${e.message}` };
   }
-  if (!res.ok) return { ok: false, msg: `HelloFresh antwortet mit HTTP ${res.status}${res.status === 403 ? " (Abruf blockiert)" : ""} – schick mir einen Screenshot der Rezeptkarte oder den Text.` };
+  if (!res.ok) return { ok: false, msg: L(`HelloFresh antwortet mit HTTP ${res.status}${res.status === 403 ? " (Abruf blockiert)" : ""} – schick mir einen Screenshot der Rezeptkarte oder den Text.`, `HelloFresh answers with HTTP ${res.status}${res.status === 403 ? " (blocked)" : ""} – send me a screenshot of the recipe card or the text.`) };
   const html = await res.text();
   let recipe = null;
   const next = /<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/.exec(html);
@@ -112,7 +113,7 @@ export async function fetchHelloFresh(url, dir) {
     } catch {}
   }
   recipe ||= fromLdJson(html, url);
-  if (!recipe) return { ok: false, msg: "Auf der HelloFresh-Seite habe ich kein Rezept gefunden (Seitenaufbau geändert?) – schick mir einen Screenshot der Rezeptkarte oder den Text." };
+  if (!recipe) return { ok: false, msg: L("Auf der HelloFresh-Seite habe ich kein Rezept gefunden (Seitenaufbau geändert?) – schick mir einen Screenshot der Rezeptkarte oder den Text.", "I found no recipe on the HelloFresh page (layout changed?) – send me a screenshot of the recipe card or the text.") };
 
   // Foto lokal ablegen, damit der Agent das Gericht für das KI-Foto beschreiben kann
   if (recipe.image_url && dir) {
