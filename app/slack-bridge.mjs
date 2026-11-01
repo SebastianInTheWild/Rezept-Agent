@@ -8,8 +8,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
-import { neurons, neuronsText } from "./lib/bild.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage } from "./lib/rezepte.mjs";
+import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
@@ -100,6 +100,7 @@ async function onAction(payload) {
   if (channel !== CHANNEL()) return;
   const user = payload.user?.id;
   if (a.action_id === "rz_image") return onImage(payload, a.value, user);
+  if (a.action_id.startsWith("rz_all_")) return onAllAction(payload, a, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus("⏳ Einen Moment …", false));
@@ -144,6 +145,108 @@ async function onImage(payload, id, user) {
   }
 }
 
+// ---------- /bild-alle: alle Bilder mit Google neu erzeugen (zweimal bestätigen, läuft im Hintergrund) ----------
+// Stand in daten/rezepte/bilder-alle.json – nach einem Neustart geht es dort weiter, wo es aufgehört hat.
+const ALL_FILE = join(REZEPTE, "bilder-alle.json");
+const loadAll = () => (existsSync(ALL_FILE) ? JSON.parse(readFileSync(ALL_FILE, "utf8")) : null);
+const saveAll = (j) => writeFileSync(ALL_FILE, JSON.stringify(j, null, 1));
+const usd = (n) => `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+const costText = (n) => (googlePrice() ? `ca. ${usd(n * googlePrice())}` : "Preis für dieses Modell unbekannt");
+const button = (text, action_id, value, style) => ({ type: "button", text: { type: "plain_text", text }, action_id, value, ...(style ? { style } : {}) });
+const section = (text) => ({ type: "section", text: { type: "mrkdwn", text } });
+const allRunning = () => ["running", "paused"].includes(loadAll()?.status);
+
+function allProgress(j) {
+  const done = j.ok + j.failed.length + j.skipped.length;
+  const state = { running: "⏳ läuft", paused: "⏸️ angehalten", stopped: "⏹️ abgebrochen", done: "✅ fertig" }[j.status];
+  const lines = [
+    `🎨 *Alle Bilder erneuern* (${j.model}) · ${state} · gestartet von <@${j.user}>`,
+    `${done} von ${j.ids.length} · ${j.ok} neu${j.skipped.length ? ` · ${j.skipped.length} übersprungen` : ""}${j.failed.length ? ` · ${j.failed.length} Fehler` : ""}`,
+  ];
+  if (j.note) lines.push(`⚠️ ${esc(j.note)}`);
+  const problems = [...j.skipped, ...j.failed].slice(-5);
+  if (problems.length) lines.push(...problems.map((p) => `• ${esc(p.name)}: ${esc(p.error)}`));
+  if (j.status === "done") lines.push("Die alten Bilder liegen 180 Tage in daten/rezepte/sicherungen.");
+  const blocks = [section(lines.join("\n"))];
+  if (j.status === "running") blocks.push({ type: "actions", elements: [button("⏹️ Anhalten", "rz_all_stop", "x", "danger")] });
+  if (j.status === "paused") blocks.push({ type: "actions", elements: [button("▶️ Weitermachen", "rz_all_resume", "x", "primary"), button("⏹️ Beenden", "rz_all_stop", "x")] });
+  return { text: `Alle Bilder erneuern: ${done}/${j.ids.length}`, blocks };
+}
+const showAll = (j) => update(j.channel, j.ts, ...Object.values(allProgress(j))).catch((e) => log(`Fortschritt nicht aktualisiert: ${e.message}`));
+
+let allWorking = false;
+async function runAll() {
+  if (allWorking) return;
+  allWorking = true;
+  try {
+    let j = loadAll();
+    let fails = 0;
+    while (j?.status === "running" && j.next < j.ids.length) {
+      const { id, name } = j.ids[j.next];
+      try {
+        await generateRecipeImage(id, { replace: true });
+        j = loadAll();
+        j.ok++;
+        fails = 0;
+      } catch (e) {
+        j = loadAll();
+        // Nicht sicherbar oder Entwurf: überspringen; sonst Fehler zählen (Google-Kontingent, Netz …)
+        const skip = /sichern|Entwurf|404/.test(e.message);
+        (skip ? j.skipped : j.failed).push({ id, name, error: e.message.slice(0, 150) });
+        if (!skip && ++fails >= 3) {
+          j.status = "paused";
+          j.note = `3 Fehler hintereinander – angehalten. Letzter Fehler: ${e.message.slice(0, 150)}`;
+        }
+        log(`/bild-alle ${name}: ${e.message}`);
+      }
+      j.next++;
+      if (j.next >= j.ids.length) j.status = "done";
+      saveAll(j);
+      if (j.status !== "running" || j.next % 5 === 0) await showAll(j);
+      if (j.status === "running") await new Promise((r) => setTimeout(r, 2_000)); // sanft zur Google-API
+      j = loadAll();
+    }
+    if (j && j.status !== "running") {
+      await showAll(j);
+      log(`/bild-alle ${j.status}: ${j.ok} neu, ${j.skipped.length} übersprungen, ${j.failed.length} Fehler`);
+    }
+  } finally {
+    allWorking = false;
+  }
+}
+
+async function onAllAction(payload, a, user) {
+  const channel = payload.channel.id;
+  const { ts } = payload.message;
+  const [, , step] = a.action_id.split("_"); // rz_all_<schritt>
+  const starter = a.value.split(":")[0];
+  if (["yes1", "yes2"].includes(step) && user !== starter) return; // nur wer gefragt hat, bestätigt
+  if (step === "no") return update(channel, ts, "Abgebrochen", [section(`❎ <@${user}> hat abgebrochen – kein Bild wurde geändert.`)]);
+  if (step === "yes1") {
+    const n = Number(a.value.split(":")[1]);
+    return update(channel, ts, "Wirklich alle Bilder erneuern?", [
+      section(`⚠️ *Wirklich sicher, <@${user}>?*\nDann bekommen *alle ${rezepte(n)}* ein neues KI-Bild von Google (${googleModel()}), auch die mit eigenem Foto. Kosten ${costText(n)}.\nDie alten Bilder werden vorher gesichert (180 Tage in daten/rezepte/sicherungen). Rezepte, deren Bild sich nicht sichern lässt, bleiben unverändert.`),
+      { type: "actions", elements: [button(`Ja, wirklich alle ${n} erneuern`, "rz_all_yes2", `${user}:${n}`, "danger"), button("Abbrechen", "rz_all_no", user)] },
+    ]);
+  }
+  if (step === "yes2") {
+    if (allRunning()) return update(channel, ts, "Läuft schon", [section("⏳ Es läuft schon ein Auftrag „Alle Bilder erneuern“.")]);
+    const ids = await allRecipeIds();
+    const j = { status: "running", user, channel, ts, model: googleModel(), started: new Date().toISOString(), ids, next: 0, ok: 0, skipped: [], failed: [] };
+    saveAll(j);
+    await showAll(j);
+    log(`/bild-alle gestartet von ${user}: ${ids.length} Rezepte`);
+    return runAll();
+  }
+  const j = loadAll();
+  if (!j) return;
+  if (step === "stop") Object.assign(j, { status: "stopped", note: `beendet von <@${user}>` });
+  if (step === "resume" && j.status === "paused") Object.assign(j, { status: "running", note: "" });
+  saveAll(j);
+  await showAll(j);
+  if (j.status === "running") runAll();
+}
+
 if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
   log("SLACK_APP_TOKEN/SLACK_BOT_TOKEN fehlen – Slack-Brücke startet nicht");
   process.exit(0);
@@ -157,6 +260,8 @@ const COMMANDS = [
   ["/offen", "Vorschläge, die auf deine Entscheidung warten – mit Link"],
   ["/rezept <Name>", "Rezept in Tandoor suchen, mit Status"],
   ["/ohne-bild [Anzahl | Name]", "Rezepte ohne Bild als einzelne Nachrichten im Kanal, mit Knopf für ein KI-Foto (Standard 5)"],
+  ["/bild-neu <Name | ID>", "Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird)"],
+  ["/bild-alle", "Alle Rezeptbilder mit Google neu erzeugen – mit doppelter Rückfrage, läuft im Hintergrund"],
   ["/pruefen [Anzahl]", "Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)"],
   ["/pro-tag [Anzahl]", "Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern"],
   ["/neuronen", "Heute noch freie Cloudflare-Neuronen für KI-Fotos"],
@@ -227,6 +332,37 @@ const commands = {
     ].filter(Boolean).join("\n");
   },
 
+  "/bild-neu": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    if (!googleReady()) return "Google ist nicht eingerichtet – `GEMINI_API_KEY` fehlt.";
+    const q = c.text.trim();
+    if (!q) return "Für welches Rezept? Beispiel: `/bild-neu Rahmwirsing` oder `/bild-neu 149567`";
+    const { hit, hits } = await resolveRecipe(q);
+    if (!hit) {
+      if (!hits.length) return `Kein Rezept zu „${esc(q)}“ gefunden.`;
+      return [`🔎 Mehrere Treffer zu „${esc(q)}“ – bitte genauer, oder mit ID:`, ...hits.map((h) => `• ${link(h.url, h.name)} · \`/bild-neu ${h.id}\``)].join("\n");
+    }
+    const r = await generateRecipeImage(hit.id, { replace: true });
+    const m = noImageMessage({ id: r.id, name: r.name, url: r.url }, [`🎨 neues Bild für <@${c.user_id}>`, r.info, r.backup ? "altes Bild gesichert" : ""].filter(Boolean).join(" · "));
+    await post(c.channel_id, m.text, m.blocks);
+    log(`/bild-neu ${hit.id} von ${c.user_id}`);
+    return `✅ Neues Bild für ${link(r.url, r.name)} ist da (Nachricht im Kanal).`;
+  },
+
+  "/bild-alle": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    if (!googleReady()) return "Google ist nicht eingerichtet – `GEMINI_API_KEY` fehlt.";
+    const run = loadAll();
+    if (allRunning()) return `⏳ Läuft schon: ${run.next} von ${run.ids.length} erledigt (${run.status === "paused" ? "angehalten" : "läuft"}). Anhalten oder weitermachen mit den Knöpfen an der Nachricht im Kanal.`;
+    const n = (await allRecipeIds()).length;
+    if (!n) return "Es gibt keine Rezepte.";
+    await post(c.channel_id, "Alle Bilder erneuern?", [
+      section(`🎨 <@${c.user_id}> möchte *alle ${rezepte(n)}* mit einem neuen KI-Bild von Google (${googleModel()}) versehen – auch die mit eigenem Foto. Kosten ${costText(n)}.\nSoll ich wirklich alle Bilder erneuern?`),
+      { type: "actions", elements: [button(`Ja, alle ${n} Bilder erneuern`, "rz_all_yes1", `${c.user_id}:${n}`, "primary"), button("Abbrechen", "rz_all_no", c.user_id)] },
+    ]);
+    return "Die Rückfrage steht im Kanal – nur du kannst sie bestätigen.";
+  },
+
   "/pro-tag": async (c) => {
     const arg = c.text.trim();
     if (!arg) {
@@ -268,6 +404,8 @@ async function onCommand(c) {
 }
 
 socket({ onEvent, onAction, onCommand, log });
+// Nach einem Neustart: laufendes „Alle Bilder erneuern“ fortsetzen
+if (loadAll()?.status === "running") setTimeout(runAll, 10_000);
 
 // Einmal täglich alte Dateien wegräumen (Fotos, Eingänge, Aufträge nach 30 Tagen, Sicherungen nach 180 Tagen)
 const tidy = () => {
