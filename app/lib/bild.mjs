@@ -97,7 +97,7 @@ const num = (n) => n.toLocaleString("de-DE");
 export const neuronsText = (n) => `heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`;
 
 // Google Gemini API (Nano Banana): Bild kommt als base64 in candidates[].content.parts[].inlineData
-async function google(prompt, model = process.env.GOOGLE_BILD_MODELL || "gemini-nano-banana-2.1") {
+async function google(prompt, model = "gemini-nano-banana-2.1") {
   // Das ältere gemini-2.5-flash-image kennt keine Bildgröße, nur das Seitenverhältnis
   const imageConfig = { aspectRatio: "3:2", ...(/2\.5-flash-image/.test(model) ? {} : { imageSize: "1K" }) };
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -127,7 +127,7 @@ async function openai(prompt) {
 }
 
 const RUN = {
-  google: (prompt) => google(prompt, process.env.BILD_MODELL || undefined),
+  google: (prompt) => google(prompt, (process.env.GOOGLE_BILD_MODELL || process.env.BILD_MODELL || "").trim() || undefined),
   cloudflare: (prompt) => cloudflare(prompt, process.env.BILD_MODELL || undefined),
   openai,
 };

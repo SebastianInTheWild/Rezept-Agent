@@ -29,7 +29,8 @@ services:
       CF_AI_TOKEN: ${CF_AI_TOKEN:-}
       BILD_ANBIETER: ${BILD_ANBIETER:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-}
+      # Google-Modell: gemini-nano-banana-2.1 (Standard) | gemini-2.5-flash-image (günstiger) | gemini-3-pro-image (beste Qualität)
+      GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       BILD_PRO_TAG: ${BILD_PRO_TAG:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
