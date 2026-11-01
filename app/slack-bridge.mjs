@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { neurons, neuronsText } from "./lib/bild.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
@@ -99,6 +99,7 @@ async function onAction(payload) {
   const channel = payload.channel?.id;
   if (channel !== CHANNEL()) return;
   const user = payload.user?.id;
+  if (a.action_id === "rz_image") return onImage(payload, a.value, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus("⏳ Einen Moment …", false));
@@ -121,6 +122,28 @@ async function onAction(payload) {
   }
 }
 
+// Knopf „Bild erzeugen“ an einer Nachricht aus /ohne-bild
+const imageBusy = new Set();
+async function onImage(payload, id, user) {
+  const channel = payload.channel.id;
+  const { ts, text, blocks = [] } = payload.message;
+  const status = (t, keepButtons = false) => update(channel, ts, text, [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text: t }] }]);
+  if (imageBusy.has(id)) return;
+  imageBusy.add(id);
+  try {
+    await status(`⏳ <@${user}>: Bild wird erzeugt …`);
+    const r = await generateRecipeImage(Number(id));
+    const m = noImageMessage({ id, name: r.name, url: r.url }, [`🎨 von <@${user}> mit KI erzeugt und in Tandoor gespeichert`, r.info].filter(Boolean).join(" · "));
+    await update(channel, ts, m.text, m.blocks);
+    log(`rz_image ${id} von ${user}`);
+  } catch (e) {
+    await status(`⚠️ ${esc(e.message)}`, true);
+    log(`Fehler bei rz_image ${id}: ${e.message}`);
+  } finally {
+    imageBusy.delete(id);
+  }
+}
+
 if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
   log("SLACK_APP_TOKEN/SLACK_BOT_TOKEN fehlen – Slack-Brücke startet nicht");
   process.exit(0);
@@ -133,6 +156,7 @@ const COMMANDS = [
   ["/statistik", "Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen"],
   ["/offen", "Vorschläge, die auf deine Entscheidung warten – mit Link"],
   ["/rezept <Name>", "Rezept in Tandoor suchen, mit Status"],
+  ["/ohne-bild [Anzahl | Name]", "Rezepte ohne Bild als einzelne Nachrichten im Kanal, mit Knopf für ein KI-Foto (Standard 5)"],
   ["/pruefen [Anzahl]", "Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)"],
   ["/pro-tag [Anzahl]", "Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern"],
   ["/neuronen", "Heute noch freie Cloudflare-Neuronen für KI-Fotos"],
@@ -154,6 +178,7 @@ const permalink = (p) =>
   p?.slack ? slack("chat.getPermalink", { channel: p.slack.channel, message_ts: p.slack.last_ts || p.slack.thread_ts }).then((r) => r.permalink, () => "") : Promise.resolve("");
 const inChannel = (c) => c.channel_id === CHANNEL();
 const notInChannel = () => `Das geht nur im Rezept-Kanal <#${CHANNEL()}>.`;
+const NO_IMAGE_MAX = 20;
 const rezepte = (n) => `${n} ${n === 1 ? "Rezept" : "Rezepte"}`;
 
 const commands = {
@@ -180,6 +205,26 @@ const commands = {
     const links = await Promise.all(hits.map((h) => permalink(h.proposal)));
     const lines = hits.map((h, i) => `• ${icon[h.status]} ${link(h.url, h.name)} · ${h.status}${links[i] ? ` · ${link(links[i], "zum Vorschlag")}` : ""}`);
     return [`🔎 *${hits.length} Treffer* zu „${esc(q)}“`, ...lines].join("\n");
+  },
+
+  "/ohne-bild": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    const arg = c.text.trim();
+    const count = /^\d+$/.test(arg) ? Number(arg) : arg ? NO_IMAGE_MAX : 5;
+    if (count < 1 || count > NO_IMAGE_MAX) return `Bitte eine Anzahl von 1 bis ${NO_IMAGE_MAX} angeben, z. B. \`/ohne-bild 5\`.`;
+    const name = /^\d+$/.test(arg) ? "" : arg;
+    const r = await recipesWithoutImage(name);
+    if (!r.total) return name ? `Kein Rezept ohne Bild zu „${esc(name)}“ gefunden.` : "🎉 Alle Rezepte haben ein Bild.";
+    if (!r.list.length) return `🖼️ ${rezepte(r.total)} ohne Bild – alle wurden in den letzten 7 Tagen schon gezeigt. Gezielt suchen: \`/ohne-bild <Name>\``;
+    const shown = r.list.slice(0, count);
+    await postWithoutImage(shown, c.channel_id);
+    log(`/ohne-bild ${arg} von ${c.user_id} → ${shown.length} Nachrichten`);
+    const rest = r.list.length - shown.length;
+    return [
+      `🖼️ *${rezepte(r.total)} ohne Bild*${name ? ` zu „${esc(name)}“` : ""} – ${shown.length === 1 ? "eins steht" : `${shown.length} stehen`} jetzt als eigene Nachricht im Kanal.`,
+      rest ? (name ? `Noch ${rest} weitere – bitte genauer suchen.` : `Noch ${rest} weitere: \`/ohne-bild ${Math.min(rest, NO_IMAGE_MAX)}\``) : "",
+      r.shown_recently ? `${r.shown_recently} davon wurden in den letzten 7 Tagen schon gezeigt und kommen nicht nochmal.` : "",
+    ].filter(Boolean).join("\n");
   },
 
   "/pro-tag": async (c) => {
@@ -219,7 +264,7 @@ async function onCommand(c) {
   if (!run) return respond(c.response_url, `Unbekannter Befehl ${c.command}. \`/hilfe\` zeigt alle Befehle.`);
   const text = await run({ ...c, text: c.text || "" }).catch((e) => `⚠️ ${e.message}`);
   await respond(c.response_url, text);
-  if (!["/pro-tag", "/pruefen"].includes(c.command)) log(`${c.command} von ${c.user_id}`);
+  if (!["/pro-tag", "/pruefen", "/ohne-bild"].includes(c.command)) log(`${c.command} von ${c.user_id}`);
 }
 
 socket({ onEvent, onAction, onCommand, log });
