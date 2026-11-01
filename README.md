@@ -1,6 +1,6 @@
 # Rezept-Agent
 
-Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Die Steuerung läuft über Slack und eine eigene Weboberfläche.
+Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Die Steuerung läuft über Slack und eine eigene Weboberfläche. Was sich geändert hat, steht im [CHANGELOG](CHANGELOG.md).
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
@@ -67,15 +67,21 @@ Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sic
 
 ## Zugangsdaten
 
-Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage: `.env.example`):
+Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage: `.env.example`) – oder in der Weboberfläche unter **Einstellungen** (hat Vorrang, siehe oben). Nur `WEB_PASSWORT` gehört immer nach Portainer.
 
 - **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
 - **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.
 - **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen. In den Kanal kommen auch Meldungen über fehlgeschlagene Läufe.
 - **GEMINI_API_KEY:** für KI-Fotos mit Google Nano Banana (optional, ca. 0,03–0,04 $ pro Bild). Schlüssel unter [aistudio.google.com](https://aistudio.google.com) → „Get API key“, Abrechnung muss aktiviert sein. Modell wählen mit `GOOGLE_BILD_MODELL`: `gemini-nano-banana-2.1` (Standard), `gemini-2.5-flash-image` (günstiger) oder `gemini-3-pro-image` (beste Qualität).
+- **SLACK_APP_ID**, **SLACK_CONFIG_TOKEN:** optional, damit Änderungen an `slack-app-manifest.yml` (z. B. neue Befehle) von selbst in Slack landen. App-ID unter api.slack.com/apps → Rezept-Helfer → Basic Information; Token unter api.slack.com/apps → ganz unten „Your App Configuration Tokens“ → Generate Token, davon den **Refresh Token** (`xoxe-1-…`). Den erneuert der Container danach selbst (`daten/slack-config-token.json`).
+- **BILD_ANBIETER:** optional `google`, `cloudflare` oder `openai`; ohne Angabe Google vor Cloudflare vor OpenAI. **BILD_PRO_TAG:** höchstens so viele KI-Fotos pro Tag (Standard 10).
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional, kostenlos; mit Google als Ersatz). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
+- **OPENAI_API_KEY:** optional, für KI-Fotos mit OpenAI GPT Image (kostenpflichtig).
+- **WEB_PASSWORT:** Passwort für die Weboberfläche. Ohne Passwort lassen sich dort keine Zugangsdaten ändern.
 
 ## Einrichten mit Docker Compose
+
+Baut das Image lokal aus diesem Repo (statt es aus GitHub zu laden):
 
 ```sh
 cp .env.example .env    # ausfüllen
