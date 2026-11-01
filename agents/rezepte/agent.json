@@ -1,6 +1,6 @@
 {
   "name": "Rezepte (Slack)",
-  "description": "Legt aus Links und Fotos aus Slack Rezept-Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Wird von der Slack-Brücke gestartet, nicht nach Zeitplan.",
+  "description": "Legt aus Links, Reels/Shorts, Fotos und Text aus Slack Rezept-Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Wird von der Slack-Brücke gestartet, nicht nach Zeitplan.",
   "icon": "mdi:chef-hat",
   "enabled": true,
   "manual": false,
@@ -10,6 +10,8 @@
     "Bash(node tandoor.mjs context)",
     "Bash(node tandoor.mjs fetch-url)",
     "Bash(node tandoor.mjs fetch-url:*)",
+    "Bash(node tandoor.mjs fetch-video)",
+    "Bash(node tandoor.mjs fetch-video:*)",
     "Bash(node tandoor.mjs search:*)",
     "Bash(node tandoor.mjs recipe:*)",
     "Bash(node tandoor.mjs propose)",
@@ -18,5 +20,9 @@
     "Read(/{{DATA}}/entwurf.json)",
     "Read(/{{DATA}}/inbox/**)"
   ],
-  "maxTurns": 40
+  "maxTurns": 40,
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "480000",
+    "BASH_MAX_TIMEOUT_MS": "600000"
+  }
 }

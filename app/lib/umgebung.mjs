@@ -22,12 +22,15 @@ export const FIELDS = [
   { group: "Slack", key: "SLACK_APP_ID", label: "App-ID (für das Manifest)", hint: "A0…, unter api.slack.com/apps → Basic Information" },
   { group: "Slack", key: "SLACK_CONFIG_TOKEN", label: "Refresh-Token der App-Konfiguration", secret: true, hint: "xoxe-1-…, unter api.slack.com/apps → „Your App Configuration Tokens“" },
   { group: "KI-Fotos", key: "BILD_ANBIETER", label: "Anbieter", options: ["", "google", "cloudflare", "openai"], hint: "leer = automatisch: Google vor Cloudflare vor OpenAI" },
+  { group: "KI-Fotos", key: "BILD_EINHEITLICH", label: "Einheitlicher Bildstil", options: ["", "an", "aus"], hint: "leer = an: neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen, wenn vorhanden" },
   { group: "KI-Fotos", key: "GEMINI_API_KEY", label: "Google-API-Schlüssel", secret: true, hint: "aistudio.google.com → „Get API key“" },
   { group: "KI-Fotos", key: "GOOGLE_BILD_MODELL", label: "Google-Modell", options: ["", "gemini-nano-banana-2.1", "gemini-2.5-flash-image", "gemini-3-pro-image"], hint: "leer = gemini-nano-banana-2.1" },
   { group: "KI-Fotos", key: "CF_ACCOUNT_ID", label: "Cloudflare-Account-ID" },
   { group: "KI-Fotos", key: "CF_AI_TOKEN", label: "Cloudflare-Token", secret: true, hint: "Vorlage „Workers AI“, für die Neuronen-Anzeige zusätzlich „Account Analytics: Read“" },
   { group: "KI-Fotos", key: "OPENAI_API_KEY", label: "OpenAI-API-Schlüssel", secret: true },
   { group: "KI-Fotos", key: "BILD_PRO_TAG", label: "Höchstens Bilder pro Tag", pattern: "^\\d*$", hint: "leer = 10; gilt nicht für /bild-neu und /bild-alle" },
+  { group: "Videos (Reels, Shorts)", key: "GEMINI_VIDEO_MODELL", label: "Gemini-Modell für Videos", hint: "leer = gemini-flash-latest (immer das aktuelle Flash-Modell); nutzt den Google-API-Schlüssel von oben" },
+  { group: "Videos (Reels, Shorts)", key: "VIDEO_MAX_SEKUNDEN", label: "Längstes Video in Sekunden", pattern: "^\\d*$", hint: "leer = 600; längere Videos: nur die Beschreibung" },
   { group: "Abgleich", key: "AGENTS_SYNC", label: "agents/ aus GitHub holen alle … Minuten", pattern: "^(\\d*|aus)$", hint: "leer = 10, „aus“ = nie" },
 ];
 const KEYS = new Set(FIELDS.map((f) => f.key));
