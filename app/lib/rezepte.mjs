@@ -3,11 +3,12 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIX, SERVINGS_TEXT } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
+import { analyzeVideo, isVideoUrl } from "./video.mjs";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -293,10 +294,10 @@ export async function search(q) {
   return j.results.map((r) => ({ id: r.id, name: r.name, url: recipeUrl(r.id) }));
 }
 
-// Link über Tandoors eigenen Import auslesen (nur Links aus dem aktuellen Auftrag)
+// Link über Tandoors eigenen Import auslesen (nur Links aus dem aktuellen Auftrag bzw. aus der Beschreibung eines Videos daraus)
 export async function fetchUrl(url) {
   const job = loadJob();
-  const allowed = job?.urls || [];
+  const allowed = [...(job?.urls || []), ...(job?.extra_urls || [])];
   if (!url) url = allowed[0];
   if (!url || !allowed.includes(url)) throw new Error(`Nur Links aus dem Auftrag sind erlaubt: ${allowed.join(", ") || "keine"}`);
   const r = await api("POST", "/api/recipe-from-source/", { url });
@@ -322,6 +323,18 @@ export async function fetchUrl(url) {
       })),
     },
   };
+}
+
+// Video (Reel, Short) aus dem Auftrag auswerten: Beschreibung, Text aus dem Video (Gemini), Standbilder.
+// Links aus der Beschreibung (z. B. zum Blog mit dem ganzen Rezept) darf der Agent danach mit fetch-url lesen.
+export async function fetchVideo(url) {
+  const job = loadJob();
+  const allowed = (job?.urls || []).filter(isVideoUrl);
+  if (!url) url = allowed[0];
+  if (!url || !allowed.includes(url)) throw new Error(`Nur Video-Links aus dem Auftrag sind erlaubt: ${allowed.join(", ") || "keine"}`);
+  const r = await analyzeVideo(url, join(REZEPTE, "inbox"));
+  if (job && r.links?.length) saveJob({ ...job, extra_urls: [...new Set([...(job.extra_urls || []), ...r.links])] });
+  return r;
 }
 
 // ---------- Prüfen ----------
@@ -426,9 +439,15 @@ export async function propose() {
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
-    // Bild: von der Quelle bzw. vom Original übernehmen, sonst mit KI erzeugen
+    // Bild: Standbild aus einem Video, von der Quelle bzw. vom Original übernehmen, sonst mit KI erzeugen
     let hasImage = false;
-    const image = d.image_url || orig?.image;
+    if (d.image_file) {
+      const inbox = resolve(REZEPTE, "inbox");
+      const file = resolve(d.image_file);
+      if (!file.startsWith(inbox + "/") || !existsSync(file)) warnings.push("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert");
+      else await uploadImage(draft.id, readFileSync(file), id).then(() => (hasImage = true), (e) => warnings.push(`Standbild nicht übernommen (${e.message.slice(0, 80)})`));
+    }
+    const image = !hasImage && (d.image_url || orig?.image);
     if (image) await api("PUT", `/api/recipe/${draft.id}/image/`, { image_url: image }).then(() => (hasImage = true), (e) => warnings.push(`Bild nicht übernommen (${e.message.slice(0, 80)})`));
     if (!hasImage) {
       if (!imageReady()) warnings.push(`Kein Bild – ${imageSetupHint}`);
@@ -567,7 +586,7 @@ function dropImage(p) {
 }
 
 // Aufräumen: alte Fotos, Eingänge, Aufträge und Sicherungen löschen (Tage je Ordner)
-const KEEP = { bilder: 30, inbox: 30, auftraege: 30, sicherungen: 180 };
+const KEEP = { bilder: 30, inbox: 30, auftraege: 30, sicherungen: 180, videos: 1 };
 export function cleanup() {
   const removed = {};
   for (const [dir, days] of Object.entries(KEEP)) {

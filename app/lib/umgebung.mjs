@@ -28,6 +28,8 @@ export const FIELDS = [
   { group: "KI-Fotos", key: "CF_AI_TOKEN", label: "Cloudflare-Token", secret: true, hint: "Vorlage „Workers AI“, für die Neuronen-Anzeige zusätzlich „Account Analytics: Read“" },
   { group: "KI-Fotos", key: "OPENAI_API_KEY", label: "OpenAI-API-Schlüssel", secret: true },
   { group: "KI-Fotos", key: "BILD_PRO_TAG", label: "Höchstens Bilder pro Tag", pattern: "^\\d*$", hint: "leer = 10; gilt nicht für /bild-neu und /bild-alle" },
+  { group: "Videos (Reels, Shorts)", key: "GEMINI_VIDEO_MODELL", label: "Gemini-Modell für Videos", hint: "leer = gemini-flash-latest (immer das aktuelle Flash-Modell); nutzt den Google-API-Schlüssel von oben" },
+  { group: "Videos (Reels, Shorts)", key: "VIDEO_MAX_SEKUNDEN", label: "Längstes Video in Sekunden", pattern: "^\\d*$", hint: "leer = 600; längere Videos: nur die Beschreibung" },
   { group: "Abgleich", key: "AGENTS_SYNC", label: "agents/ aus GitHub holen alle … Minuten", pattern: "^(\\d*|aus)$", hint: "leer = 10, „aus“ = nie" },
 ];
 const KEYS = new Set(FIELDS.map((f) => f.key));

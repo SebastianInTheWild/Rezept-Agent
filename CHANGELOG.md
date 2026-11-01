@@ -2,6 +2,16 @@
 
 Alle wichtigen Änderungen am Rezept-Agent. Neueste oben.
 
+## Unveröffentlicht
+
+### Neu
+- **Rezepte aus Instagram-Reels und YouTube-Shorts** (auch TikTok und YouTube-Videos bis 10 Minuten): Link in den Rezept-Kanal schicken. `yt-dlp` holt Bildunterschrift und Video, Gemini wertet das Video aus (Gesprochenes, eingeblendeter Text, Mengen), der Agent baut daraus den Entwurf. Ein Link zum Blog in der Bildunterschrift wird bevorzugt gelesen; als Foto dient ein Standbild des fertigen Gerichts. Neue Einstellungen: `GEMINI_VIDEO_MODELL`, `VIDEO_MAX_SEKUNDEN`, `VIDEO_COOKIES`.
+- **Rezepttext einfügen:** Längerer Text ohne Link oder Foto (z. B. eine kopierte Bildunterschrift) wird als Rezept angelegt statt mit der Hilfe beantwortet.
+
+### Geändert
+- Image enthält jetzt `ffmpeg` und `yt-dlp` (wird mit dem wöchentlichen Build aktuell).
+- Der Agent `rezepte` darf Befehle bis 8 Minuten laufen lassen (Video-Auswertung).
+
 ## 2026-11-01
 
 ### Neu

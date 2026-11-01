@@ -17,7 +17,9 @@ const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
 const INBOX = join(REZEPTE, "inbox");
 const log = (m) => console.log(`[${new Date().toLocaleString("de-DE")}] [slack] ${m}`);
-const HELP = "Schick mir einen Link zu einem Rezept oder ein Foto (Kochbuchseite, Screenshot, Zettel). Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.";
+const HELP = "Schick mir einen Link zu einem Rezept, ein Instagram-Reel oder YouTube-Short, ein Foto (Kochbuchseite, Screenshot, Zettel) oder den Rezepttext selbst. Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.";
+// Reiner Text gilt als Rezept, wenn er lang genug ist (z. B. eine kopierte Bildunterschrift) – kurze Nachrichten bekommen die Hilfe
+const looksLikeRecipe = (t) => t.length >= 80 || t.split("\n").filter((l) => l.trim()).length >= 3;
 
 mkdirSync(JOBS, { recursive: true });
 mkdirSync(INBOX, { recursive: true });
@@ -52,7 +54,7 @@ async function onEvent(e) {
 
   const urls = linksIn(text);
   const files = (e.files || []).filter((f) => /^image\//.test(f.mimetype || ""));
-  if (!urls.length && !files.length) return post(e.channel, HELP, undefined, e.ts);
+  if (!urls.length && !files.length && !looksLikeRecipe(plain(text))) return post(e.channel, HELP, undefined, e.ts);
   const images = [];
   for (const [n, f] of files.entries()) {
     const path = join(INBOX, `${e.ts.replace(".", "-")}-${n + 1}.${(f.filetype || "jpg").replace(/[^a-z0-9]/gi, "")}`);

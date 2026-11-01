@@ -4,7 +4,7 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
-| `rezepte` | über Slack | Legt aus Links und Fotos im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
+| `rezepte` | über Slack | Legt aus Links, Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 
@@ -64,6 +64,18 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | `/hilfe` | Übersicht |
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
+
+## Rezepte aus Reels und Shorts
+
+Einen Link zu einem **Instagram-Reel** oder **YouTube-Short** (auch TikTok und normale YouTube-Videos bis 10 Minuten) einfach in den Rezept-Kanal schicken:
+
+1. `yt-dlp` holt Bildunterschrift und Video, `ffmpeg` zieht Standbilder.
+2. **Gemini** sieht sich das Video an und schreibt heraus, was gesagt und eingeblendet wird – Zutaten, Mengen, Schritte (nutzt `GEMINI_API_KEY`, Modell `GEMINI_VIDEO_MODELL`, Standard `gemini-flash-latest`; unter 1 Cent pro Reel). Ohne Schlüssel gibt es nur Bildunterschrift und Standbilder.
+3. Der Agent setzt daraus das Rezept zusammen. Verweist die Bildunterschrift auf einen Blog mit dem ganzen Rezept, nimmt er bevorzugt diesen. Als Rezeptfoto dient ein Standbild des fertigen Gerichts, sonst ein KI-Foto.
+
+Instagram blockt Abrufe ohne Anmeldung manchmal. Dann antwortet der Agent im Thread und bittet um die Bildunterschrift als Text oder einen Screenshot. Wird das häufig, hilft eine Cookie-Datei eines (am besten zweiten) Instagram-Kontos: `VIDEO_COOKIES=/data/daten/cookies.txt` (Netscape-Format, z. B. mit einer Browser-Erweiterung „Get cookies.txt“ exportiert). Automatisches Abrufen ist bei Instagram nicht erlaubt; das Konto kann gesperrt werden.
+
+**Text einfügen:** Längerer Text ohne Link (ab etwa 80 Zeichen oder 3 Zeilen), z. B. eine kopierte Bildunterschrift, wird ebenfalls als Rezept angelegt.
 
 ## Zugangsdaten
 

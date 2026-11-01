@@ -3,9 +3,13 @@
 # Autor: SebastianInTheWild · MIT-Lizenz
 FROM node:26-bookworm-slim
 
+# ffmpeg + yt-dlp für Rezepte aus Reels/Shorts (yt-dlp als eigenständiges Programm, wird mit jedem Build aktuell)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata ca-certificates \
+ && apt-get install -y --no-install-recommends tzdata ca-certificates curl ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL -o /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
+ && chmod 755 /usr/local/bin/yt-dlp \
+ && yt-dlp --version \
  && npm install -g @anthropic-ai/claude-code \
  && npm cache clean --force
 

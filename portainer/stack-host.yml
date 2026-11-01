@@ -35,6 +35,10 @@ services:
       # Google-Modell: gemini-nano-banana-2.1 (Standard) | gemini-2.5-flash-image (günstiger) | gemini-3-pro-image (beste Qualität)
       GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Rezepte aus Reels/Shorts: Gemini sieht sich das Video an (GEMINI_API_KEY von oben); optional Cookies, falls Instagram blockt
+      GEMINI_VIDEO_MODELL: ${GEMINI_VIDEO_MODELL:-}
+      VIDEO_MAX_SEKUNDEN: ${VIDEO_MAX_SEKUNDEN:-}
+      VIDEO_COOKIES: ${VIDEO_COOKIES:-}
       BILD_PRO_TAG: ${BILD_PRO_TAG:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
       # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
