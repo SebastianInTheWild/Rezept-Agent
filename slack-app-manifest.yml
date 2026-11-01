@@ -55,6 +55,11 @@ features:
       description: Rezept in Tandoor suchen, mit Status
       usage_hint: "<Name>"
       should_escape: false
+    - command: /ohne-bild
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Rezepte ohne Bild zeigen, mit Knopf für ein KI-Foto
+      usage_hint: "[Anzahl | Name]"
+      should_escape: false
     - command: /pruefen
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Qualitätsprüfung jetzt starten

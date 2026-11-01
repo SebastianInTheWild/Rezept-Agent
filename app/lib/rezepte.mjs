@@ -134,6 +134,7 @@ export async function stats(now = new Date()) {
     open,
     skipped,
     todo,
+    no_image: recipes.filter((r) => !r.image).length,
     batch,
     days_left: batch > 0 ? Math.ceil(todo / batch) : null,
     today: {
@@ -155,6 +156,7 @@ export function statsMessage(s, date = new Date()) {
     `• 🚫 nicht bearbeiten: ${s.skipped}`,
     `• 📝 noch zu prüfen: *${s.todo}*` + (s.todo && s.days_left ? ` – bei ${s.batch} pro Tag noch etwa ${s.days_left} ${s.days_left === 1 ? "Tag" : "Tage"}` : s.todo && !s.batch ? " – tägliche Prüfung ist auf 0 gestellt" : ""),
   ];
+  if (s.no_image !== undefined) lines.push(`• 🖼️ ohne Bild: *${s.no_image}*` + (s.no_image ? " – `/ohne-bild` zeigt sie mit Knopf für ein KI-Foto" : ""));
   const t = s.today;
   if (t.proposed || t.applied || t.rejected) lines.push(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`);
   if (!s.todo && !s.open) lines.push("🎉 Alle Rezepte sind geprüft.");
@@ -178,6 +180,72 @@ export async function findRecipes(q) {
       const status = k.includes(KW.checked) ? "geprüft" : k.includes(KW.skip) ? "nicht bearbeiten" : k.includes(KW.open) || open.has(r.id) ? "Vorschlag offen" : "noch nicht geprüft";
       return { id: r.id, name: r.name, url: recipeUrl(r.id), status, proposal: open.get(r.id) || null };
     });
+}
+
+// ---------- Rezepte ohne Bild (Slack „/ohne-bild“) ----------
+
+// Gepostete Nachrichten je Rezept: store.no_image[id] = { channel, ts, posted, generated }
+const NO_IMAGE_REPEAT = 7 * 86_400_000; // gleiches Rezept frühestens nach 7 Tagen wieder von selbst zeigen
+
+/** Rezepte ohne Bild (ohne Entwürfe), optional nach Name gefiltert. Mit Suchbegriff auch schon gezeigte. */
+export async function recipesWithoutImage(q = "") {
+  const posted = loadStore().no_image || {};
+  const term = q.trim().toLowerCase();
+  const list = (await all("/api/recipe/"))
+    .filter((r) => !r.name.startsWith(DRAFT_PREFIX) && !r.image && !kwNames(r).includes(KW.open))
+    .filter((r) => !term || r.name.toLowerCase().includes(term))
+    .sort((a, b) => a.name.localeCompare(b.name, "de"))
+    .map((r) => ({ id: r.id, name: r.name, url: recipeUrl(r.id), posted: posted[r.id]?.posted || null }));
+  const fresh = term ? list : list.filter((r) => !r.posted || Date.now() - Date.parse(r.posted) > NO_IMAGE_REPEAT);
+  return { total: list.length, shown_recently: list.length - fresh.length, list: fresh };
+}
+
+const imageButton = (id, again) => ({
+  type: "actions",
+  block_id: `rzimg:${id}`,
+  elements: [{ type: "button", ...(again ? {} : { style: "primary" }), text: { type: "plain_text", text: again ? "🔄 Anderes Bild erzeugen" : "🎨 Bild erzeugen" }, action_id: "rz_image", value: String(id) }],
+});
+
+/** Slack-Nachricht für ein Rezept ohne Bild (bzw. nach dem Erzeugen mit Knopf für ein anderes). */
+export function noImageMessage(r, status) {
+  const blocks = [{ type: "section", text: { type: "mrkdwn", text: `🖼️ *${status ? "Bild erzeugt" : "Ohne Bild"}:* ${link(r.url, r.name)}` } }];
+  if (status) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: status }] });
+  blocks.push(imageButton(r.id, Boolean(status)));
+  return { text: `${status ? "Bild erzeugt" : "Rezept ohne Bild"}: ${r.name}`, blocks };
+}
+
+/** Postet je Rezept eine eigene Nachricht in den Kanal und merkt sie sich. */
+export async function postWithoutImage(recipes, channel = CHANNEL()) {
+  const store = loadStore();
+  store.no_image ||= {};
+  for (const r of recipes) {
+    const m = noImageMessage(r);
+    const res = await post(channel, m.text, m.blocks);
+    store.no_image[r.id] = { ...store.no_image[r.id], channel, ts: res.ts, posted: new Date().toISOString() };
+  }
+  saveStore(store);
+}
+
+/** KI-Foto für ein bestehendes Rezept erzeugen und in Tandoor hochladen. Ein fremdes Foto wird nie ersetzt. */
+export async function generateRecipeImage(id) {
+  if (!imageReady()) throw new Error(`Kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
+  const r = await getRecipe(id);
+  if (r.name.startsWith(DRAFT_PREFIX)) throw new Error("Das ist ein Entwurf – das Bild kommt mit dem Vorschlag");
+  const entry = loadStore().no_image?.[id];
+  if (r.image && !entry?.generated) throw new Error("Das Rezept hat inzwischen ein eigenes Bild – das ersetze ich nicht");
+  const jpg = await generateImage(simplify(r), REZEPTE);
+  if (DRY) return { ok: true, dry: true, name: r.name, url: recipeUrl(r.id) };
+  await uploadImage(r.id, jpg, String(r.id));
+  // Der Upload ändert updated_at – geprüfte bzw. abgelehnte Rezepte sollen deshalb nicht erneut in die Prüfung
+  const store = loadStore();
+  const after = await getRecipe(r.id);
+  if (store.checked[r.id]) store.checked[r.id] = after.updated_at;
+  if (store.rejected[r.id]) store.rejected[r.id] = after.updated_at;
+  store.no_image ||= {};
+  store.no_image[r.id] = { ...store.no_image[r.id], generated: new Date().toISOString() };
+  saveStore(store);
+  const left = process.env.BILD_ANBIETER === "openai" ? "" : await neurons().then((n) => `Cloudflare: ${neuronsText(n)}`, () => "");
+  return { ok: true, name: r.name, url: recipeUrl(r.id), info: left };
 }
 
 export async function search(q) {

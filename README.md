@@ -6,7 +6,7 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 |---|---|---|
 | `rezepte` | über Slack | Legt aus Links und Fotos im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
-| `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
+| `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 
 Fehlen Bilder, erzeugt der Container KI-Fotos über Cloudflare Workers AI (kostenlos) oder optional OpenAI.
 
@@ -27,13 +27,14 @@ Neue oder geänderte Agenten pushst du einfach nach GitHub (`agents/<name>/agent
 
 Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
 
-Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen` und `/pro-tag <Zahl>` nur im Rezept-Kanal):
+Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild` und `/pro-tag <Zahl>` nur im Rezept-Kanal):
 
 | Befehl | Was er macht |
 | --- | --- |
-| `/statistik` | Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen |
+| `/statistik` | Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen, ohne Bild |
 | `/offen` | Vorschläge, die auf eine Entscheidung warten, mit Link |
 | `/rezept <Name>` | Rezept in Tandoor suchen, mit Status |
+| `/ohne-bild [Anzahl \| Name]` | Rezepte ohne Bild, jedes als eigene Nachricht im Kanal mit Knopf **🎨 Bild erzeugen** (KI-Foto direkt in Tandoor, danach **🔄 Anderes Bild erzeugen**). Ohne Angabe 5 Stück; schon gezeigte kommen erst nach 7 Tagen wieder, mit Name wird gezielt gesucht. Ein eigenes Foto wird nie ersetzt. |
 | `/pruefen [Anzahl]` | Qualitätsprüfung jetzt starten; mit Anzahl darf er heute so viele Rezepte zusätzlich zum Tageswert prüfen |
 | `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
 | `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
