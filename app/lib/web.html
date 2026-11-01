@@ -81,18 +81,40 @@
   .toast.error { background: var(--danger); }
   .empty { text-align: center; padding: var(--huge) var(--xl); color: var(--ink-48); }
   footer { font-size: 12px; color: var(--ink-48); padding: 0 0 var(--xxxl); }
+  /* Reiter und Einstellungen */
+  .tabs { display: flex; gap: var(--lg); }
+  .tabs a { color: var(--body-muted); text-decoration: none; font-size: 14px; }
+  .tabs a[aria-current="page"] { color: var(--canvas); font-weight: 600; }
+  .row { display: grid; gap: var(--xs); padding: var(--md) 0; border-top: 1px solid var(--divider); }
+  .row:first-of-type { border-top: 0; padding-top: 0; }
+  .row label { font-weight: 600; font-size: 15px; }
+  .row .now { font-size: 13px; color: var(--ink-80); display: flex; flex-wrap: wrap; gap: var(--xs) var(--sm); align-items: center; }
+  .row .field { width: 100%; max-width: 520px; }
+  select.field { appearance: auto; }
+  .banner { background: var(--canvas); border: 2px solid var(--warning); border-radius: var(--r-lg); padding: var(--lg); display: grid; gap: var(--sm); }
+  .banner.info { border-color: var(--hairline); }
+  .sticky { position: sticky; bottom: var(--base); display: flex; gap: var(--md); align-items: center; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-pill); padding: var(--sm) var(--sm) var(--sm) var(--lg); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+  .sticky span { flex: 1; font-size: 15px; color: var(--ink-80); }
+  [hidden] { display: none !important; }
   @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } }
 </style>
 </head>
 <body>
-<nav class="nav"><div class="wrap"><strong>Agenten</strong><span id="clock"></span></div></nav>
-<main class="wrap">
+<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span id="clock"></span></div></nav>
+<main class="wrap" id="view-plan">
   <header class="hero">
     <h1>Zeitplan</h1>
     <p class="sub">Wann deine Agenten laufen. Änderungen landen in <code>zeitplan.conf</code> und gelten nach spätestens 30 Sekunden – ohne Neustart.</p>
   </header>
   <div class="list" id="list"><div class="empty">Lade …</div></div>
   <footer id="foot"></footer>
+</main>
+<main class="wrap" id="view-env" hidden>
+  <header class="hero">
+    <h1>Einstellungen</h1>
+    <p class="sub">Zugangsdaten und Optionen. Werte von hier haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in <code>daten/umgebung.json</code>. Sie gelten nach einem Neustart des Containers.</p>
+  </header>
+  <div class="list" id="env"><div class="empty">Lade …</div></div>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -330,6 +352,114 @@ async function load() {
     data = await r.json(); render();
   } catch (err) { toast(`Laden fehlgeschlagen: ${err.message}`, true); }
 }
+// ---------- Einstellungen ----------
+let env = null;
+let changes = {};
+const SOURCE = { "Weboberfläche": "aus der Weboberfläche", "Umgebung": "aus Portainer/.env", "": "nicht gesetzt" };
+
+async function loadEnv() {
+  try {
+    const r = await fetch("api/umgebung", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    env = await r.json(); changes = {}; renderEnv();
+  } catch (err) { toast(`Laden fehlgeschlagen: ${err.message}`, true); }
+}
+async function saveEnv(values) {
+  try {
+    const r = await fetch("api/umgebung", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    env = j; changes = {}; renderEnv();
+    toast("Gespeichert – gilt nach dem Neustart");
+  } catch (err) { toast(err.message, true); }
+}
+async function restart() {
+  const busy = env.running.length ? `\n\nAchtung: ${env.running.join(", ")} läuft gerade und wird abgebrochen.` : "";
+  if (!confirm(`Container jetzt neu starten? Die Oberfläche ist dann etwa eine halbe Minute nicht erreichbar.${busy}`)) return;
+  try {
+    await fetch("api/neustart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch {}
+  toast("Container startet neu …");
+  const wait = async () => {
+    try { const r = await fetch("api/umgebung", { cache: "no-store" }); if (r.ok) { env = await r.json(); renderEnv(); return toast("Neu gestartet – neue Werte gelten"); } } catch {}
+    setTimeout(wait, 3000);
+  };
+  setTimeout(wait, 5000);
+}
+
+function envRow(f) {
+  const row = el("div", "row");
+  const id = `env-${f.key}`;
+  const label = el("label", null, f.label); label.htmlFor = id;
+  const now = el("div", "now");
+  now.append(el("span", "chip", SOURCE[f.source] ?? f.source));
+  if (f.shown) now.append(el("code", null, f.shown));
+  if (f.pending) now.append(el("span", "badge err", "Neustart nötig"));
+  let input;
+  if (f.options) {
+    input = el("select", "field");
+    for (const o of f.options) { const opt = el("option", null, o || "automatisch / Standard"); opt.value = o; opt.selected = o === f.value; input.append(opt); }
+    input.onchange = () => (changes[f.key] = input.value);
+  } else {
+    input = el("input", "field");
+    input.type = f.secret ? "password" : "text"; input.autocomplete = "off"; input.spellcheck = false;
+    if (f.secret) { input.placeholder = f.shown ? "neuen Wert eingeben, um ihn zu ersetzen" : "Wert eingeben"; input.disabled = !env.secrets; }
+    else { input.value = f.value; input.placeholder = f.env ? `leer = ${f.env} (Portainer)` : "leer"; }
+    input.oninput = () => { if (f.secret && !input.value) delete changes[f.key]; else changes[f.key] = input.value; };
+  }
+  input.id = id; input.name = f.key;
+  row.append(label, now, input);
+  if (f.hint) row.append(el("p", "hint", f.hint));
+  if (f.source === "Weboberfläche" && (f.secret || f.options)) {
+    const reset = el("button", "link", f.env ? `Eintrag löschen – dann gilt wieder ${f.env} aus Portainer` : "Eintrag löschen"); reset.type = "button";
+    reset.onclick = () => { if (confirm(`${f.label}: Eintrag aus der Weboberfläche löschen?`)) saveEnv({ [f.key]: "" }); };
+    row.append(reset);
+  }
+  return row;
+}
+
+function renderEnv() {
+  const box = document.getElementById("env");
+  const parts = [];
+  if (env.fields.some((f) => f.pending)) {
+    const b = el("div", "banner");
+    b.append(el("b", null, "Geänderte Werte gelten erst nach einem Neustart."));
+    if (env.running.length) b.append(el("p", "hint", `Gerade läuft: ${env.running.join(", ")} – am besten danach neu starten.`));
+    const go = el("button", "btn primary", "Jetzt neu starten"); go.type = "button"; go.onclick = restart; go.style.justifySelf = "start";
+    b.append(go); parts.push(b);
+  }
+  if (!env.secrets) {
+    const b = el("div", "banner info");
+    b.append(el("b", null, "Zugangsdaten sind gesperrt"), el("p", "hint", "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu."));
+    parts.push(b);
+  }
+  const groups = [...new Set(env.fields.map((f) => f.group))];
+  for (const g of groups) {
+    const c = el("article", "card");
+    c.append(el("h2", "title", g));
+    env.fields.filter((f) => f.group === g).forEach((f) => c.append(envRow(f)));
+    parts.push(c);
+  }
+  const bar = el("div", "sticky");
+  bar.append(el("span", null, "Änderungen speichern"));
+  const ok = el("button", "btn primary", "Speichern"); ok.type = "button";
+  ok.onclick = () => (Object.keys(changes).length ? saveEnv(changes) : toast("Nichts geändert"));
+  bar.append(ok); parts.push(bar);
+  box.replaceChildren(...parts);
+}
+
+function view() {
+  const settings = location.hash === "#einstellungen";
+  document.getElementById("view-plan").hidden = settings;
+  document.getElementById("view-env").hidden = !settings;
+  document.getElementById("tab-plan").setAttribute("aria-current", settings ? "false" : "page");
+  document.getElementById("tab-env").setAttribute("aria-current", settings ? "page" : "false");
+  document.title = settings ? "Einstellungen · Agenten" : "Zeitplan · Agenten";
+  if (settings && !Object.keys(changes).length) loadEnv();
+}
+window.addEventListener("hashchange", view);
+view();
+
 function tick() { document.getElementById("clock").textContent = new Date().toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" }); }
 tick(); setInterval(tick, 30000);
 load(); setInterval(load, 30000);

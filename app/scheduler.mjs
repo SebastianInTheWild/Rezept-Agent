@@ -6,6 +6,7 @@
 //   node scheduler.mjs list      Agenten und Zeiten anzeigen
 //   node scheduler.mjs run <id>  Agent sofort einmal starten
 
+import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENTS_DIR, clearRunning, loadAgent, runAgent } from "./run-agent.mjs";

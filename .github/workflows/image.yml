@@ -1,0 +1,62 @@
+# Baut das Container-Image (Programm, Agenten, Claude Code) und legt es in der GitHub Container Registry ab:
+#   ghcr.io/sebastianinthewild/rezept-agent:latest  (+ :sha-<commit>)
+# Bei jedem Push auf main, der app/, agents/, Dockerfile oder das Slack-Manifest ändert, jeden Montag neu
+# (frische Basis und aktuelles Claude Code) und von Hand unter Actions → „Image bauen“ → Run workflow.
+# Optional: Secret PORTAINER_WEBHOOK (Webhook-URL des Stacks in Portainer) – dann wird der Stack danach sofort neu geladen.
+name: Image bauen
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "agents/**", "Dockerfile", "slack-app-manifest.yml", ".github/workflows/image.yml"]
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Montags ohne Cache bauen, damit Basis-Image und Claude Code wirklich neu sind
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Portainer-Stack neu laden
+        env:
+          PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK }}
+        if: env.PORTAINER_WEBHOOK != ''
+        run: curl -fsS -X POST "$PORTAINER_WEBHOOK"

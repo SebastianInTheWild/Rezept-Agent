@@ -10,18 +10,22 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 
 Fehlen Bilder, erzeugt der Container KI-Fotos über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI. Fällt Google oder OpenAI aus, springt Cloudflare ein.
 
-## Einrichten mit Portainer: Ordner auf dem Host
+## Einrichten mit Portainer
 
-`portainer/stack-host.yml` legt alles in **einen Ordner auf dem Docker-Host** (Standard `/home/sebastian/docker/rezepte`, änderbar mit `AGENTS_HOST_DIR`):
+Das Programm kommt als **fertiges Image** aus GitHub: Bei jedem Push auf `main` (und jeden Montag mit frischem Claude Code) baut GitHub Actions `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` startet dieses Image; die Daten liegen in **einem Ordner auf dem Docker-Host** (Standard `/home/sebastian/docker/rezepte`, änderbar mit `AGENTS_HOST_DIR`):
 
 ```
 /home/sebastian/docker/rezepte/
   zeitplan.conf   wann welcher Agent läuft (Änderungen gelten ohne Neustart)
-  agents/         ein Ordner je Agent (agent.json + prompt.md)
-  app/            Programm
-  daten/          Entwürfe, Logs je Agent
-  npm/            Claude Code (installiert sich beim ersten Start selbst)
+  agents/         ein Ordner je Agent (agent.json + prompt.md), alle 10 Minuten aus GitHub
+  daten/          Entwürfe, Logs, Sicherungen, Einstellungen aus der Weboberfläche
 ```
+
+1. **Stack anlegen:** Portainer → Stacks → Add stack → **Repository**: URL dieses Repos, Reference `refs/heads/main`, Compose path `portainer/stack-host.yml`. **GitOps updates** einschalten (Polling, z. B. 5 Minuten, mit **Re-pull image**) – dann kommen auch Änderungen an der Stack-Datei von selbst.
+2. **Image-Zugriff:** Ist das Repo privat, ist auch das Image privat. Dann in Portainer unter **Registries → Add registry → GitHub** einen GitHub-Token mit `read:packages` hinterlegen – oder das Paket unter GitHub → Packages → rezept-agent → Package settings auf „Public“ stellen.
+3. **Neues Image automatisch einspielen** – eine der beiden Möglichkeiten:
+   - **Webhook (sofort):** Im Stack in Portainer den **Webhook** einschalten, die URL kopieren und im Repo unter Settings → Secrets → Actions als `PORTAINER_WEBHOOK` speichern. Nach jedem Build lädt GitHub den Stack neu. Portainer muss dafür aus dem Internet erreichbar sein.
+   - **What's Up Docker:** Die Labels im Stack lassen WUD neue Builds von `:latest` erkennen; mit einem Docker-Trigger in WUD wird der Container automatisch erneuert.
 
 Neue oder geänderte Agenten pushst du einfach nach GitHub (`agents/<name>/agent.json` + `prompt.md`, Vorlage `agents/_vorlage`): Der Container holt `agents/` alle 10 Minuten (`AGENTS_SYNC`, „aus“ = nie) und erkennt sie ohne Neustart. Änderungen direkt auf dem Host in Agenten aus dem Repo werden dabei überschrieben.
 
@@ -31,10 +35,16 @@ Alles, was auf `main` landet, kommt von selbst auf den Server:
 
 | Was | Wie |
 | --- | --- |
+| `app/` (Programm), Claude Code | GitHub Actions baut ein neues Image; Portainer-Webhook oder WUD spielen es ein |
 | `agents/` | alle 10 Minuten aus GitHub (`AGENTS_SYNC`), ohne Neustart |
-| `app/` (Programm) | ebenso (`APP_SYNC`, Standard an). Neuer Code wird vorher mit `node --check` geprüft – mit Syntaxfehler bleibt der alte Stand. Danach startet der Container neu, sobald kein Agent läuft. Eigene Änderungen in `app/` auf dem Host werden überschrieben. |
-| `slack-app-manifest.yml` | holt der Abgleich mit; die Slack-Brücke spielt es über die Manifest-API in Slack ein (`SLACK_APP_ID`, `SLACK_CONFIG_TOKEN`) und meldet das im Kanal. Kommen neue Berechtigungen dazu, muss die App einmal von Hand neu installiert werden. |
-| `portainer/stack-host.yml` | Stack in Portainer als **Repository**-Stack anlegen (Compose path `portainer/stack-host.yml`, Reference `refs/heads/main`) und **GitOps updates** (Polling, z. B. 5 Minuten) einschalten |
+| `slack-app-manifest.yml` | steckt im Image; die Slack-Brücke spielt Änderungen über die Manifest-API in Slack ein (`SLACK_APP_ID`, `SLACK_CONFIG_TOKEN`) und meldet das im Kanal. Kommen neue Berechtigungen dazu, muss die App einmal von Hand neu installiert werden. |
+| `portainer/stack-host.yml` | Portainer-Repository-Stack mit **GitOps updates** |
+
+Alte Ordner-Variante (Programm in `app/` auf dem Host, Image `node`): Dort holt der Abgleich auch `app/` und das Manifest aus GitHub und startet danach neu (`APP_SYNC`, Standard an; wirkt nur, wenn `app/` beschreibbar ist). Mit dem Image sind `app/` und `npm/` auf dem Host überflüssig und können weg.
+
+### Einstellungen in der Weboberfläche
+
+Unter **Einstellungen** (Reiter oben) lassen sich Zugangsdaten und Optionen eintragen: Claude, Tandoor, Slack, KI-Fotos (Anbieter, Google-Modell, Schlüssel), Bilder pro Tag, Abgleich. Sie haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in `daten/umgebung.json` (nur für den Container-Benutzer lesbar). Leeres Feld bzw. „Eintrag löschen“ = wieder den Wert aus Portainer nehmen. Änderungen gelten nach **Jetzt neu starten**. Tokens und Schlüssel lassen sich nur ändern, wenn `WEB_PASSWORT` gesetzt ist; angezeigt werden sie nur gekürzt (`••••1234`). `WEB_PASSWORT` selbst bleibt in Portainer, damit man sich nicht aussperrt.
 
 Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
 

@@ -4,6 +4,7 @@
 // Freigabe: nur Nachrichten aus SLACK_CHANNEL; wer im Kanal ist, darf schicken und bestätigen.
 // Autor: SebastianInTheWild · MIT-Lizenz
 
+import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
@@ -249,8 +250,10 @@ async function onAllAction(payload, a, user) {
 }
 
 if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
-  log("SLACK_APP_TOKEN/SLACK_BOT_TOKEN fehlen – Slack-Brücke startet nicht");
-  process.exit(0);
+  // Nicht beenden (sonst startet start.sh die Brücke alle 15 s neu): warten, bis die Tokens eingetragen sind und neu gestartet wird
+  log("SLACK_APP_TOKEN/SLACK_BOT_TOKEN fehlen – Slack-Brücke wartet (in der Weboberfläche unter Einstellungen eintragen)");
+  setInterval(() => {}, 1 << 30);
+  await new Promise(() => {});
 }
 log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agent ${AGENT})`);
 // Slash-Befehle (im Manifest angelegt). Antworten sind nur für den Fragenden sichtbar.
