@@ -3,6 +3,7 @@
 // Beim Qualitäts-Agenten zusätzlich: wie viele Rezepte er pro Tag prüft (daten/rezepte/einstellungen.json).
 // Der Zeitplan liest die Datei alle 30 s, die Slack-Brücke jede Minute – ein Neustart ist nicht nötig.
 // Port: WEB_PORT (Standard 8080, „aus“ = keine Oberfläche). Passwort: WEB_PASSWORT (optional, HTTP-Anmeldung).
+// Seite „Einstellungen“: Umgebungsvariablen setzen (lib/umgebung.mjs); Geheimnisse nur mit WEB_PASSWORT, gelten nach „Neu starten“.
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { createServer } from "node:http";
@@ -12,6 +13,7 @@ import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AGENTS_DIR, hasStartRequest, loadAgent, readStatus, takeStartRequest } from "../run-agent.mjs";
 import { perDay, setPerDay, PER_DAY_MAX } from "./rezepte.mjs";
+import { envOverview, setEnvValues, FIELDS } from "./umgebung.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -252,6 +254,34 @@ export function startWeb() {
         }
         console.log(`[web] Rezept-Qualität: ${value} Rezepte pro Tag`);
         return send(res, 200, overview());
+      }
+      // Einstellungen (Umgebungsvariablen)
+      const envState = () => ({
+        fields: envOverview(),
+        secrets: Boolean(process.env.WEB_PASSWORT),
+        running: agentIds().filter((id) => readStatus(id, "status.json")?.running),
+      });
+      if (req.method === "GET" && url.pathname === "/api/umgebung") return send(res, 200, envState());
+      if (req.method === "PUT" && url.pathname === "/api/umgebung") {
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        const { values = {} } = await body(req);
+        const secret = Object.keys(values).filter((k) => FIELDS.find((f) => f.key === k)?.secret);
+        if (secret.length && !process.env.WEB_PASSWORT) return send(res, 403, { error: "Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen)" });
+        try {
+          setEnvValues(values);
+        } catch (e) {
+          return send(res, 400, { error: e.message });
+        }
+        console.log(`[web] Einstellungen geändert: ${Object.keys(values).join(", ")}`);
+        return send(res, 200, envState());
+      }
+      if (req.method === "POST" && url.pathname === "/api/neustart") {
+        if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: "JSON erwartet" });
+        console.log("[web] Neustart von Hand (Einstellungen)");
+        send(res, 200, { ok: true });
+        // Docker startet den Container neu (restart: unless-stopped) – dann gelten die neuen Werte überall
+        setTimeout(() => process.exit(0), 500);
+        return;
       }
       const run = /^\/api\/run\/([\w.-]+)$/.exec(url.pathname);
       if (req.method === "POST" && run) {

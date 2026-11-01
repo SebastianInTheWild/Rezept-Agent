@@ -12,6 +12,7 @@
 //   node tandoor.mjs stats [--text] [--post] Statistik: gesamt, geprüft, offen, noch zu prüfen (--post: in den Slack-Kanal)
 //   node tandoor.mjs reply "<text>"       Antwort im Slack-Thread des Auftrags (z. B. wenn kein Rezept zu finden war)
 
+import "./lib/umgebung.mjs"; // Einstellungen aus der Weboberfläche (auch beim Aufruf von Hand)
 import { existsSync, writeFileSync } from "node:fs";
 import { getRecipe, simplify } from "./lib/tandoor.mjs";
 import { context, pending, search, fetchUrl, propose, stats, statsMessage, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";

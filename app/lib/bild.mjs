@@ -20,6 +20,11 @@ const cloudflareReady = READY.cloudflare;
 export const provider = () => (process.env.BILD_ANBIETER || Object.keys(READY).find((p) => READY[p]()) || "").toLowerCase();
 export const imageReady = () => Boolean(READY[provider()]?.());
 export const imageSetupHint = "für KI-Fotos GEMINI_API_KEY (Google) oder CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare, kostenlos) als Umgebungsvariablen setzen";
+export const googleReady = () => READY.google();
+export const googleModel = () => (process.env.GOOGLE_BILD_MODELL || process.env.BILD_MODELL || "").trim() || "gemini-nano-banana-2.1";
+// Ungefährer Preis pro Bild in US-Dollar (Stand 11/2026, ohne Gewähr) – für die Rückfrage bei /bild-alle
+const GOOGLE_PRICE = { "gemini-nano-banana-2.1": 0.034, "gemini-2.5-flash-image": 0.039, "gemini-3-pro-image": 0.134, "gemini-3-pro-image-preview": 0.134 };
+export const googlePrice = () => GOOGLE_PRICE[googleModel()] ?? null;
 const NAMES = { google: "Google Nano Banana", cloudflare: "Cloudflare FLUX", openai: "OpenAI GPT Image" };
 let lastProvider = "";
 
@@ -97,7 +102,7 @@ const num = (n) => n.toLocaleString("de-DE");
 export const neuronsText = (n) => `heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`;
 
 // Google Gemini API (Nano Banana): Bild kommt als base64 in candidates[].content.parts[].inlineData
-async function google(prompt, model = process.env.GOOGLE_BILD_MODELL || "gemini-nano-banana-2.1") {
+async function google(prompt, model = "gemini-nano-banana-2.1") {
   // Das ältere gemini-2.5-flash-image kennt keine Bildgröße, nur das Seitenverhältnis
   const imageConfig = { aspectRatio: "3:2", ...(/2\.5-flash-image/.test(model) ? {} : { imageSize: "1K" }) };
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -127,26 +132,28 @@ async function openai(prompt) {
 }
 
 const RUN = {
-  google: (prompt) => google(prompt, process.env.BILD_MODELL || undefined),
+  google: (prompt) => google(prompt, googleModel()),
   cloudflare: (prompt) => cloudflare(prompt, process.env.BILD_MODELL || undefined),
   openai,
 };
 
-export async function generateImage(d, dir) {
-  if (!imageReady()) throw new Error(`kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
+// Optionen: only = nur dieser Anbieter, ohne Ersatz (z. B. "google" beim Erneuern); noLimit = BILD_PRO_TAG nicht anwenden
+// (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem)
+export async function generateImage(d, dir, { only, noLimit = false } = {}) {
+  const main = only || provider();
+  if (!READY[main]?.()) throw new Error(only === "google" ? "GEMINI_API_KEY fehlt – Google ist nicht eingerichtet" : `kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
   mkdirSync(dir, { recursive: true });
   const limit = Number(process.env.BILD_PRO_TAG || 10);
   const cnt = countToday(dir);
-  if (cnt.n >= limit) throw new Error(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`);
+  if (!noLimit && cnt.n >= limit) throw new Error(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`);
   const prompt = imagePrompt(d);
-  const main = provider();
   let img;
   try {
     img = await RUN[main](prompt);
     lastProvider = main;
   } catch (e) {
     // Ersatz: Cloudflare mit seinem Standardmodell (BILD_MODELL gilt nur für den gewählten Anbieter)
-    if (main === "cloudflare" || !cloudflareReady()) throw e;
+    if (only || main === "cloudflare" || !cloudflareReady()) throw e;
     try {
       img = await cloudflare(prompt);
       lastProvider = "cloudflare";
@@ -161,6 +168,7 @@ export async function generateImage(d, dir) {
 /** Kurzer Hinweis, womit das letzte Bild erzeugt wurde (bei Cloudflare mit den freien Neuronen). */
 export async function lastImageNote() {
   const name = NAMES[lastProvider] || lastProvider;
+  if (lastProvider === "google") return `${name} (${googleModel()})`;
   if (lastProvider !== "cloudflare") return name;
   const n = await neurons().then(neuronsText, (e) => `Neuronen unbekannt: ${e.message}`);
   return `${name}${provider() !== "cloudflare" ? " (Ersatz)" : ""} · ${n}`;

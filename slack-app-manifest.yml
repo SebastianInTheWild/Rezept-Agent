@@ -60,6 +60,15 @@ features:
       description: Rezepte ohne Bild zeigen, mit Knopf für ein KI-Foto
       usage_hint: "[Anzahl | Name]"
       should_escape: false
+    - command: /bild-neu
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Neues KI-Bild mit Google für ein Rezept
+      usage_hint: "<Name | ID>"
+      should_escape: false
+    - command: /bild-alle
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Alle Rezeptbilder mit Google neu erzeugen (mit Rückfrage)
+      should_escape: false
     - command: /pruefen
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Qualitätsprüfung jetzt starten

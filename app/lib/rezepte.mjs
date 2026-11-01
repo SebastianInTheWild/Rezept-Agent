@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { all, api, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIX, SERVINGS_TEXT } from "./tandoor.mjs";
+import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIX, SERVINGS_TEXT } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 
@@ -226,14 +226,36 @@ export async function postWithoutImage(recipes, channel = CHANNEL()) {
   saveStore(store);
 }
 
-/** KI-Foto für ein bestehendes Rezept erzeugen und in Tandoor hochladen. Ein fremdes Foto wird nie ersetzt. */
-export async function generateRecipeImage(id) {
-  if (!imageReady()) throw new Error(`Kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
+// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
+async function backupImage(r) {
+  const url = /^https?:/.test(r.image) ? r.image : base() + r.image;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TANDOOR_TOKEN}` } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) throw new Error("leer");
+  mkdirSync(join(REZEPTE, "sicherungen"), { recursive: true });
+  const file = join(REZEPTE, "sicherungen", `${r.id}-bild-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageType(buf).ext}`);
+  writeFileSync(file, buf);
+  return file;
+}
+
+/**
+ * KI-Foto für ein bestehendes Rezept erzeugen und in Tandoor hochladen.
+ * Ohne replace wird ein eigenes Foto nie ersetzt. Mit replace (/bild-neu, /bild-alle) nur mit Google und erst,
+ * nachdem das alte Bild gesichert ist – klappt die Sicherung nicht, bleibt das alte Bild.
+ */
+export async function generateRecipeImage(id, { replace = false } = {}) {
+  if (!replace && !imageReady()) throw new Error(`Kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
   const r = await getRecipe(id);
   if (r.name.startsWith(DRAFT_PREFIX)) throw new Error("Das ist ein Entwurf – das Bild kommt mit dem Vorschlag");
   const entry = loadStore().no_image?.[id];
-  if (r.image && !entry?.generated) throw new Error("Das Rezept hat inzwischen ein eigenes Bild – das ersetze ich nicht");
-  const jpg = await generateImage(simplify(r), REZEPTE);
+  if (r.image && !entry?.generated && !replace) throw new Error("Das Rezept hat inzwischen ein eigenes Bild – das ersetze ich nicht");
+  let backup = null;
+  if (r.image && replace && !DRY)
+    backup = await backupImage(r).catch((e) => {
+      throw new Error(`Altes Bild ließ sich nicht sichern (${e.message}) – es bleibt unverändert`);
+    });
+  const jpg = await generateImage(simplify(r), REZEPTE, replace ? { only: "google", noLimit: true } : {});
   if (DRY) return { ok: true, dry: true, name: r.name, url: recipeUrl(r.id) };
   await uploadImage(r.id, jpg, String(r.id));
   // Der Upload ändert updated_at – geprüfte bzw. abgelehnte Rezepte sollen deshalb nicht erneut in die Prüfung
@@ -244,7 +266,26 @@ export async function generateRecipeImage(id) {
   store.no_image ||= {};
   store.no_image[r.id] = { ...store.no_image[r.id], generated: new Date().toISOString() };
   saveStore(store);
-  return { ok: true, name: r.name, url: recipeUrl(r.id), info: await lastImageNote() };
+  return { ok: true, id: r.id, name: r.name, url: recipeUrl(r.id), info: await lastImageNote(), backup };
+}
+
+/** Alle Rezepte (ohne Entwürfe) für /bild-alle, nach Name sortiert. */
+export const allRecipeIds = async () =>
+  (await all("/api/recipe/"))
+    .filter((r) => !r.name.startsWith(DRAFT_PREFIX))
+    .sort((a, b) => a.name.localeCompare(b.name, "de"))
+    .map((r) => ({ id: r.id, name: r.name }));
+
+/** Für /bild-neu: Rezept per ID, exaktem Namen oder eindeutigem Suchtreffer. */
+export async function resolveRecipe(q) {
+  q = q.trim();
+  if (/^\d+$/.test(q)) {
+    const r = await getRecipe(Number(q)).catch(() => null);
+    return r && !r.name.startsWith(DRAFT_PREFIX) ? { hit: { id: r.id, name: r.name, url: recipeUrl(r.id) }, hits: [] } : { hit: null, hits: [] };
+  }
+  const hits = (await search(q)).filter((r) => !r.name.startsWith(DRAFT_PREFIX));
+  const exact = hits.filter((r) => r.name.toLowerCase() === q.toLowerCase());
+  return { hit: exact.length === 1 ? exact[0] : hits.length === 1 ? hits[0] : null, hits };
 }
 
 export async function search(q) {

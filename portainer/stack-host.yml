@@ -1,21 +1,21 @@
-# Rezept-Agent, Ordner-Variante: alles liegt in einem Ordner auf dem Docker-Host.
+# Rezept-Agent für Portainer. Das Programm kommt als fertiges Image aus GitHub (GitHub Actions baut es bei jedem Push auf main),
+# die Daten liegen in einem Ordner auf dem Docker-Host:
 #
 #   /home/sebastian/docker/rezepte/
 #     zeitplan.conf   Wann welcher Agent läuft (Änderungen gelten ohne Neustart)
-#     agents/         Ein Ordner je Agent (agent.json + prompt.md), _vorlage zum Kopieren
-#     app/            Programm (Zeitplan, Werkzeuge)
-#     daten/          Merklisten, Logs und Sicherungen je Agent
-#     npm/            Claude Code (installiert sich beim ersten Start selbst)
+#     agents/         Ein Ordner je Agent (agent.json + prompt.md) – wird alle 10 Minuten aus GitHub aktualisiert
+#     daten/          Merklisten, Logs, Sicherungen, Einstellungen aus der Weboberfläche (umgebung.json)
+#
+# Zugangsdaten entweder hier unter „Environment variables“ oder in der Weboberfläche unter „Einstellungen“ (hat Vorrang).
 #
 # Der Container läuft als Benutzer 1000 (Besitzer von /home/sebastian/docker), damit du alle Dateien ohne sudo bearbeiten kannst.
 services:
   agents:
-    image: node:26-bookworm-slim
+    image: ghcr.io/sebastianinthewild/rezept-agent:${IMAGE_TAG:-latest}
+    pull_policy: always
     container_name: rezepte
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
-    working_dir: /data/app
-    command: ["sh", "/data/app/start.sh"]
     environment:
       # Zugangsdaten: in Portainer unter „Environment variables“ eintragen (Vorlage: .env.example)
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
@@ -25,11 +25,15 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_CHANNEL: ${SLACK_CHANNEL:-}
+      # Slack-Manifest automatisch einspielen (optional): App-ID und Refresh-Token der App-Konfiguration
+      SLACK_APP_ID: ${SLACK_APP_ID:-}
+      SLACK_CONFIG_TOKEN: ${SLACK_CONFIG_TOKEN:-}
       CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
       CF_AI_TOKEN: ${CF_AI_TOKEN:-}
       BILD_ANBIETER: ${BILD_ANBIETER:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-}
+      # Google-Modell: gemini-nano-banana-2.1 (Standard) | gemini-2.5-flash-image (günstiger) | gemini-3-pro-image (beste Qualität)
+      GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       BILD_PRO_TAG: ${BILD_PRO_TAG:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
@@ -51,8 +55,8 @@ services:
       homepage.icon: mdi-chef-hat
       homepage.href: https://${WEB_DOMAIN:-rezepte.hamm.schmalzbauer.work}
       homepage.description: Recipe agents for Tandoor (Slack bridge, quality check)
-      # What's Up Docker: nur neue Builds von node:26 einspielen, nicht automatisch auf die nächste Hauptversion springen
-      wud.tag.include: "^26-bookworm-slim$"
+      # What's Up Docker: neue Builds von :latest erkennen (Digest), damit es mit einem Docker-Trigger automatisch aktualisiert
+      wud.tag.include: "^latest$"
       wud.watch.digest: "true"
     networks:
       - ProxyNetwork
