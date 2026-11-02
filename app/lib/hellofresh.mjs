@@ -21,6 +21,9 @@ const text = (s) =>
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
+    // Markdown-Reste und HelloFresh-Sternchen („Salz*“ = Vorratszutat, nicht in der Box)
+    .replace(/\\([*_#])/g, "$1")
+    .replace(/(\S)\*+/g, "$1")
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s*\n+/g, "\n")
     .trim();
@@ -36,28 +39,42 @@ function fromNextData(r, url) {
   const byId = new Map((r.ingredients || []).map((i) => [i.id, i]));
   const yields = (r.yields || []).map((y) => ({
     servings: y.yields,
-    ingredients: (y.ingredients || []).map((yi) => ({ id: yi.id, amount: yi.amount ?? null, unit: yi.unit || null, food: byId.get(yi.id)?.name || "?" })),
+    ingredients: (y.ingredients || []).map((yi) => {
+      // „0 nach Geschmack“ → ohne Menge; Vorratszutaten (nicht in der Box) kennzeichnen
+      const toTaste = !yi.amount || /nach Geschmack|to taste|au goût/i.test(yi.unit || "");
+      const info = byId.get(yi.id);
+      return {
+        id: yi.id,
+        amount: toTaste ? null : yi.amount,
+        unit: toTaste ? null : yi.unit || null,
+        food: info?.name || "?",
+        ...(toTaste ? { note: yi.unit || "nach Geschmack" } : {}),
+        ...(info?.shipped === false ? { pantry: true } : {}),
+      };
+    }),
   }));
   const names = new Map([...byId].map(([id, i]) => [id, i.name]));
   const steps = [...(r.steps || [])]
     .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
     .map((s) => ({
-      instruction: text(s.instructionsMarkdown || s.instructions),
+      instruction: text(s.instructionsHTML || s.instructions || s.instructionsMarkdown),
       ingredients: (s.ingredients || []).map((id) => names.get(id?.id || id)).filter(Boolean),
       utensils: (s.utensils || []).map((u) => u.name || byId.get(u)?.name).filter(Boolean),
       timers: (s.timers || []).map((t) => t.name || t.duration).filter(Boolean),
     }));
   return {
-    name: [r.name, r.headline].filter(Boolean).join(" "),
+    name: r.name || "",
     title: r.name || "",
     headline: r.headline || "",
-    description: text(r.descriptionMarkdown || r.description),
+    description: text(r.descriptionHTML || r.description || r.descriptionMarkdown),
     servings_options: yields.map((y) => y.servings),
     yields,
     steps,
     devices: (r.utensils || []).map((u) => u.name).filter(Boolean),
     working_time: minutes(r.prepTime),
     total_time: minutes(r.totalTime),
+    // HelloFresh gibt manchmal eine Gesamtzeit kleiner als die Arbeitszeit an – Wartezeit nie negativ
+    waiting_time: Math.max(0, (minutes(r.totalTime) ?? 0) - (minutes(r.prepTime) ?? 0)),
     keywords: [...(r.tags || []), ...(r.cuisines || []), ...(r.categories || [])].map((t) => t.name).filter(Boolean),
     allergens: (r.allergens || []).map((a) => a.name).filter(Boolean),
     nutrition: (r.nutrition || []).map((n) => `${n.name}: ${n.amount} ${n.unit}`),
