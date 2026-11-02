@@ -299,7 +299,7 @@ async function runAll() {
 async function onAllAction(payload, a, user) {
   const channel = payload.channel.id;
   const { ts } = payload.message;
-  const [, , step] = a.action_id.split("_"); // rz_all_<schritt>
+  const [, , step] = a.action_id.split("_"); // rz_all_<schritt>[_<auswahl>] – action_id muss pro Nachricht eindeutig sein
   // Wert: „<wer>:<auswahl>:<anzahl>“ (ältere Nachrichten: „<wer>:<anzahl>“ = alle)
   const parts = a.value.split(":");
   const [starter, mode, n] = parts.length === 3 ? [parts[0], parts[1], Number(parts[2])] : [parts[0], "all", Number(parts[1])];
@@ -475,9 +475,9 @@ const commands = {
     if (allRunning()) return L(`⏳ Läuft schon: ${run.next} von ${run.ids.length} erledigt (${run.status === "paused" ? "angehalten" : "läuft"}). Anhalten oder weitermachen mit den Knöpfen an der Nachricht im Kanal.`, `⏳ Already running: ${run.next} of ${run.ids.length} done (${run.status === "paused" ? "paused" : "running"}). Pause or continue with the buttons on the message in the channel.`);
     const [n, missing, old] = await Promise.all(["all", "missing", "old"].map((m) => allRecipeIds(m).then((l) => l.length)));
     if (!n) return L("Es gibt keine Rezepte.", "There are no recipes.");
-    const choices = [button(L(`Alle ${n}`, `All ${n}`), "rz_all_yes1", `${c.user_id}:all:${n}`, "primary")];
-    if (missing) choices.push(button(L(`Nur ohne KI-Bild (${missing})`, `Only without AI picture (${missing})`), "rz_all_yes1", `${c.user_id}:missing:${missing}`));
-    if (old) choices.push(button(L(`Nur alter Stil (${old})`, `Only old style (${old})`), "rz_all_yes1", `${c.user_id}:old:${old}`));
+    const choices = [button(L(`Alle ${n}`, `All ${n}`), "rz_all_yes1_all", `${c.user_id}:all:${n}`, "primary")];
+    if (missing) choices.push(button(L(`Nur ohne KI-Bild (${missing})`, `Only without AI picture (${missing})`), "rz_all_yes1_missing", `${c.user_id}:missing:${missing}`));
+    if (old) choices.push(button(L(`Nur alter Stil (${old})`, `Only old style (${old})`), "rz_all_yes1_old", `${c.user_id}:old:${old}`));
     choices.push(button(L("Abbrechen", "Cancel"), "rz_all_no", c.user_id));
     await post(c.channel_id, L("Bilder erneuern?", "Renew pictures?"), [
       section(
