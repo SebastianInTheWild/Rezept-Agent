@@ -119,12 +119,22 @@ export const neuronsText = (n) => L(`heute noch ${num(n.free)} von ${num(n.limit
 async function google(prompt, model = "gemini-nano-banana-2.1") {
   // Das ältere gemini-2.5-flash-image kennt keine Bildgröße, nur das Seitenverhältnis
   const imageConfig = { aspectRatio: "3:2", ...(/2\.5-flash-image/.test(model) ? {} : { imageSize: "1K" }) };
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["IMAGE"], imageConfig } }),
-  });
-  const j = await r.json().catch(() => ({}));
+  const call = () =>
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["IMAGE"], imageConfig } }),
+    });
+  // Vorübergehende Google-Fehler (überlastet, „Deadline expired“ = 504) bis zu zweimal wiederholen
+  let r, j;
+  for (let attempt = 0; ; attempt++) {
+    r = await call();
+    j = await r.json().catch(() => ({}));
+    if (![500, 502, 503, 504].includes(r.status) || attempt >= 2) break;
+    const wait = (attempt + 1) * 10_000;
+    console.log(`Google (${model}): HTTP ${r.status} ${j.error?.message || ""} – neuer Versuch in ${wait / 1000} s`);
+    await new Promise((res) => setTimeout(res, wait));
+  }
   const cand = j.candidates?.[0];
   const img = cand?.content?.parts?.find((p) => p.inlineData?.data || p.inline_data?.data);
   if (!r.ok || !img) {
