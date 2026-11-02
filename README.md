@@ -143,7 +143,7 @@ As environment variables, in Portainer under "Environment variables" (template: 
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** for AI photos (optional, free; fallback for Google). To show the free neurons after each photo and with `/neurons`, the token also needs "Account Analytics: Read".
 - **OPENAI_API_KEY:** optional, for AI photos with OpenAI GPT Image (paid).
 - **GEMINI_VIDEO_MODELL**, **VIDEO_MAX_SEKUNDEN**, **VIDEO_COOKIES:** optional, for reels and shorts (see above).
-- **WEB_PASSWORT:** password for the web UI. Without it, credentials can't be changed there.
+- **WEB_PASSWORT:** password for the web UI (HTTP login). Empty = no login. Without a password, credentials can't be changed there – unless **WEB_ZUGANGSDATEN_OHNE_PASSWORT=an** is set: then it works without login too. Only set it if the page is protected otherwise, e.g. reachable only from your home network via an **Access List** in Nginx Proxy Manager (`192.168.0.0/16`). The switch can deliberately only be set in Portainer/`.env`, not in the web UI; the web UI then shows a notice.
 
 ## Setup with Docker Compose
 

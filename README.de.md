@@ -140,7 +140,7 @@ Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage:
 - **BILD_ANBIETER:** optional `google`, `cloudflare` oder `openai`; ohne Angabe Google vor Cloudflare vor OpenAI. **BILD_PRO_TAG:** höchstens so viele KI-Fotos pro Tag (Standard 10).
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional, kostenlos; mit Google als Ersatz). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
 - **OPENAI_API_KEY:** optional, für KI-Fotos mit OpenAI GPT Image (kostenpflichtig).
-- **WEB_PASSWORT:** Passwort für die Weboberfläche. Ohne Passwort lassen sich dort keine Zugangsdaten ändern.
+- **WEB_PASSWORT:** Passwort für die Weboberfläche (HTTP-Anmeldung). Leer = kein Login. Ohne Passwort lassen sich dort keine Zugangsdaten ändern – außer mit **WEB_ZUGANGSDATEN_OHNE_PASSWORT=an**: dann geht es auch ohne Login. Das nur setzen, wenn die Seite anders geschützt ist, z. B. im Nginx Proxy Manager per **Access List** nur aus dem Heimnetz (`192.168.0.0/16`) erreichbar. Der Schalter lässt sich bewusst nur in Portainer/`.env` setzen, nicht in der Weboberfläche; dort erscheint dann ein Hinweis.
 
 ## Einrichten mit Docker Compose
 

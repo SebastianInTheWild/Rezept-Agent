@@ -176,7 +176,9 @@ const EN = {
   "Geänderte Werte gelten erst nach einem Neustart.": "Changed values only apply after a restart.",
   "Gerade läuft: {names} – am besten danach neu starten.": "Running now: {names} – best restart afterwards.", "Jetzt neu starten": "Restart now",
   "Zugangsdaten sind gesperrt": "Credentials are locked",
-  "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu.": "Tokens and keys can only be changed here when this page has a password. Set WEB_PASSWORT in Portainer and restart the stack.",
+  "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT) oder in Portainer WEB_ZUGANGSDATEN_OHNE_PASSWORT=an gesetzt ist – das nur, wenn der Proxy die Seite z. B. aufs Heimnetz beschränkt.": "Tokens and keys can only be changed here when this page has a password (WEB_PASSWORT) or WEB_ZUGANGSDATEN_OHNE_PASSWORT=an is set in Portainer – only do that if the proxy restricts the page, e.g. to your home network.",
+  "Ohne Passwort – Zugangsdaten änderbar": "No password – credentials can be changed",
+  "WEB_ZUGANGSDATEN_OHNE_PASSWORT ist an. Jeder, der diese Seite erreicht, kann Tokens und Schlüssel ändern. Sorg dafür, dass sie nur aus dem Heimnetz erreichbar ist (z. B. Access List im Nginx Proxy Manager).": "WEB_ZUGANGSDATEN_OHNE_PASSWORT is on. Anyone who can reach this page can change tokens and keys. Make sure it is only reachable from your home network (e.g. an access list in Nginx Proxy Manager).",
   "Änderungen speichern": "Save changes", "Nichts geändert": "Nothing changed",
   "Einstellungen · Agenten": "Settings · Agents", "Zeitplan · Agenten": "Schedule · Agents", "Standard": "default",
   "Sicherungen": "Backups", "Sicherungen · Agenten": "Backups · Agents", "Bild nicht abrufbar": "Picture not available", "kein Bild": "no picture",
@@ -542,7 +544,11 @@ function renderEnv() {
   }
   if (!env.secrets) {
     const b = el("div", "banner info");
-    b.append(el("b", null, t("Zugangsdaten sind gesperrt")), el("p", "hint", t("Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu.")));
+    b.append(el("b", null, t("Zugangsdaten sind gesperrt")), el("p", "hint", t("Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT) oder in Portainer WEB_ZUGANGSDATEN_OHNE_PASSWORT=an gesetzt ist – das nur, wenn der Proxy die Seite z. B. aufs Heimnetz beschränkt.")));
+    parts.push(b);
+  } else if (env.open) {
+    const b = el("div", "banner info");
+    b.append(el("b", null, t("Ohne Passwort – Zugangsdaten änderbar")), el("p", "hint", t("WEB_ZUGANGSDATEN_OHNE_PASSWORT ist an. Jeder, der diese Seite erreicht, kann Tokens und Schlüssel ändern. Sorg dafür, dass sie nur aus dem Heimnetz erreichbar ist (z. B. Access List im Nginx Proxy Manager).")));
     parts.push(b);
   }
   const groups = [...new Set(env.fields.map((f) => f.group))];
