@@ -30,6 +30,7 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, 
 - **Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version (Commit) und ob es ein Update war (von … auf …). Ein Neustart nur der Slack-Brücke wird nicht gemeldet. Abschaltbar mit `NEUSTART_MELDUNG=aus` bzw. in der Weboberfläche unter Einstellungen → Slack. Das Image kennt dafür seine Version (`APP_VERSION`, `APP_BUILD` aus GitHub Actions).
 
 ### Behoben
+- **`/bild-alle` ging nicht mehr:** Slack lehnte die Auswahl-Nachricht ab (`invalid_blocks`, „`action_id` already exists“), weil die Knöpfe „Alle“, „Nur ohne KI-Bild“ und „Nur alter Stil“ dieselbe Kennung hatten. Jeder Knopf hat jetzt eine eigene.
 - **`/bild-neu` und `/bild-alle`:** Das Sichern des alten Bildes scheiterte mit HTTP 400, wenn Tandoor die Bilder über signierte S3-Adressen ausliefert (z. B. app.tandoor.dev) – S3 lehnt den zusätzlich mitgeschickten Tandoor-Token ab. Das Bild wird jetzt zuerst ohne Token geladen, der Token nur bei 401/403 mitgeschickt.
 
 ## 2026-11-02 (Sprache)
