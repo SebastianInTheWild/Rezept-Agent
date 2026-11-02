@@ -83,3 +83,7 @@ features:
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Was der Rezept-Helfer kann
       should_escape: false
+    - command: /google
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Google-Nutzung und geschätzte Kosten diesen Monat
+      should_escape: false

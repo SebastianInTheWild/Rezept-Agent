@@ -39,6 +39,11 @@ services:
       # Google-Modell: gemini-nano-banana-2.1 (Standard) | gemini-2.5-flash-image (günstiger) | gemini-3-pro-image (beste Qualität)
       GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Slack /google: monatliches Google-Guthaben in Dollar (Rest + Warnung bei 80 %), optional eigene Preise für die Schätzung
+      GOOGLE_GUTHABEN: ${GOOGLE_GUTHABEN:-}
+      GOOGLE_PREIS_BILD: ${GOOGLE_PREIS_BILD:-}
+      GEMINI_PREIS_EINGABE: ${GEMINI_PREIS_EINGABE:-}
+      GEMINI_PREIS_AUSGABE: ${GEMINI_PREIS_AUSGABE:-}
       # Rezepte aus Reels/Shorts: Gemini sieht sich das Video an (GEMINI_API_KEY von oben); optional Cookies, falls Instagram blockt
       GEMINI_VIDEO_MODELL: ${GEMINI_VIDEO_MODELL:-}
       VIDEO_MAX_SEKUNDEN: ${VIDEO_MAX_SEKUNDEN:-}

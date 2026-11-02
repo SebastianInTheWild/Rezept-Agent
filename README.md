@@ -72,6 +72,7 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | `/check [count]` (`/pruefen`) | Start the quality check now; with a count it may check that many recipes on top of today's amount |
 | `/per-day [count]` (`/pro-tag`) | Show or change recipes per day (like in the web UI) |
 | `/neurons` (`/neuronen`) | Cloudflare neurons left today for AI photos |
+| `/google` | Google usage this month: pictures, videos, estimated cost, today, last month and – with `GOOGLE_GUTHABEN` – remaining credit. A warning is posted once at 80 %. Estimated from the agent's own calls (Google doesn't expose the balance via the API key). |
 | `/help` (`/hilfe`) | Overview |
 
 With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.

@@ -138,6 +138,7 @@ const EN = {
     "/pruefen": ["Start the quality check now", "[count]"],
     "/pro-tag": ["How many recipes are checked per day", "[count]"],
     "/hilfe": ["What the recipe helper can do"],
+    "/google": ["Google usage and estimated cost this month"],
   },
 };
 function localize(m) {

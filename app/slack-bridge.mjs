@@ -12,6 +12,7 @@ import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
+import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe } from "./lib/rezepte.mjs";
 
@@ -282,6 +283,7 @@ const COMMANDS = () => [
   ["/pruefen", L("[Anzahl]", "[count]"), L("Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)", "Start the quality check now (with a count: that many recipes on top of today's amount)")],
   ["/pro-tag", L("[Anzahl]", "[count]"), L("Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern", "How many recipes are checked per day – show or change")],
   ["/neuronen", "", L("Heute noch freie Cloudflare-Neuronen für KI-Fotos", "Cloudflare neurons left today for AI photos")],
+  ["/google", "", L("Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten und Rest-Guthaben", "Google usage this month: pictures, videos, estimated cost and remaining credit")],
   ["/hilfe", "", L("Diese Übersicht", "This overview")],
 ];
 const helpText = () => [`*${L("Rezept-Helfer", "Recipe helper")}* – ${HELP()}`, "", ...COMMANDS().map(([c, a, d]) => `• \`${cmd(c)}${a ? " " + a : ""}\` – ${d}`)].join("\n");
@@ -305,6 +307,7 @@ const NO_IMAGE_MAX = 20;
 const commands = {
   "/hilfe": async () => helpText(),
   "/statistik": async () => statsMessage(await stats()),
+  "/google": async () => usageMessage(),
   "/neuronen": async () => neurons().then((n) => `🧠 Cloudflare Workers AI: ${neuronsText(n)}. ${L(`Das Kontingent beginnt um ${resetTime()} Uhr neu.`, `The quota resets at ${resetTime()}.`)}`, (e) => `${L("Neuronen nicht abrufbar", "Neurons not available")}: ${e.message}`),
 
   "/offen": async () => {
