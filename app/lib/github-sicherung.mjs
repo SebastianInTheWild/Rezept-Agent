@@ -82,15 +82,19 @@ async function head() {
 }
 
 /** Änderungen als ein Commit: changes = [{ path, content (Buffer) } | { path, sha } | { path, delete: true }] */
-async function commit(h, changes, message) {
+async function commit(h, changes, message, say = () => {}) {
   if (!changes.length) return null;
   const entries = [];
+  const uploads = changes.filter((c) => !c.delete && !c.sha).length;
+  let done = 0;
+  if (uploads) say(`${uploads} Dateien werden hochgeladen`);
   for (const c of changes) {
     if (c.delete) entries.push({ path: c.path, mode: "100644", type: "blob", sha: null });
     else if (c.sha) entries.push({ path: c.path, mode: "100644", type: "blob", sha: c.sha });
     else {
       const blob = await gh("POST", "/git/blobs", { content: c.content.toString("base64"), encoding: "base64" });
       entries.push({ path: c.path, mode: "100644", type: "blob", sha: blob.sha });
+      if (++done % 25 === 0 && done < uploads) say(`hochgeladen: ${done}/${uploads}`);
       await pause(Number(process.env.BACKUP_PAUSE_MS ?? 750)); // GitHub begrenzt Inhalte pro Minute
     }
   }
@@ -142,11 +146,13 @@ export const backupRunning = () => running;
  * Täglicher Abgleich. Liefert { changed, deleted: [{id,name}], uploaded, unchanged } und merkt sich das Ergebnis.
  * force: auch unveränderte Rezepte neu holen (z. B. nach einem Fehler).
  */
-export async function syncBackup({ force = false, log = console.log } = {}) {
+export async function syncBackup({ force = false, log = console.log, by = "" } = {}) {
+  const say = (m) => log(`[sicherung] ${m}`);
   if (!backupReady()) throw new Error(L("GitHub-Sicherung ist nicht eingerichtet (BACKUP_REPO, BACKUP_TOKEN)", "GitHub backup is not set up (BACKUP_REPO, BACKUP_TOKEN)"));
   if (running) throw new Error(L("Die Sicherung läuft gerade schon", "The backup is already running"));
   running = true;
   const started = new Date().toISOString();
+  say(`Start${by ? ` (${by})` : ""}${force ? ", alle Rezepte neu" : ""} → ${repo()}`);
   const state = readState();
   try {
     const h = await head();
@@ -158,8 +164,11 @@ export async function syncBackup({ force = false, log = console.log } = {}) {
     if ((inRepo.size && !list.length) || (inRepo.size >= 4 && missing.length > inRepo.size / 2))
       throw new Error(L(`${missing.length} von ${inRepo.size} Rezepten fehlen in Tandoor – zur Sicherheit abgebrochen. Ist Tandoor erreichbar?`, `${missing.length} of ${inRepo.size} recipes are missing in Tandoor – stopped for safety. Is Tandoor reachable?`));
 
+    say(`${list.length} Rezepte in Tandoor, ${inRepo.size} in der Sicherung`);
     const changes = [];
     const known = (state.recipes ||= {});
+    const todo = list.filter((o) => force || !h.files.has(`rezepte/${o.id}/rezept.json`) || known[String(o.id)] !== o.updated_at).length;
+    if (todo) say(`${todo} Rezepte neu oder geändert – werden geholt`);
     let updated = 0;
     let unchanged = 0;
     for (const o of list) {
@@ -174,7 +183,7 @@ export async function syncBackup({ force = false, log = console.log } = {}) {
       const jsonBuf = recipeJson(r);
       if (h.files.get(`${dir}/rezept.json`) !== blobSha(jsonBuf)) changes.push({ path: `${dir}/rezept.json`, content: jsonBuf });
       // Bild: nur hochladen, wenn es sich geändert hat; alte Bilddateien mit anderer Endung entfernen
-      const img = await recipeImage(r).catch((e) => (log(`[sicherung] ${r.name}: ${e.message}`), undefined));
+      const img = await recipeImage(r).catch((e) => (say(`Bild von „${r.name}“ nicht geholt: ${e.message}`), undefined));
       const oldImages = [...h.files.keys()].filter((p) => p.startsWith(`${dir}/bild.`));
       if (img) {
         const path = `${dir}/bild.${imageType(img).ext}`;
@@ -183,6 +192,7 @@ export async function syncBackup({ force = false, log = console.log } = {}) {
       } else if (img === null) for (const p of oldImages) changes.push({ path: p, delete: true }); // Bild in Tandoor entfernt
       known[id] = o.updated_at;
       updated++;
+      if (updated % 25 === 0 && updated < todo) say(`geholt: ${updated}/${todo}`);
     }
 
     // Gelöschte Rezepte nach geloescht/<id>/ verschieben (gleiche Inhalte, kein erneutes Hochladen)
@@ -200,6 +210,7 @@ export async function syncBackup({ force = false, log = console.log } = {}) {
       changes.push({ path: `geloescht/${id}/geloescht.json`, content: Buffer.from(JSON.stringify({ id: Number(id), name, deleted: started }, null, 1) + "\n") });
       delete known[id];
       deleted.push({ id: Number(id), name });
+      say(`in Tandoor gelöscht: „${name}“ (#${id}) → geloescht/${id}`);
     }
 
     // Bild- und Rezept-Sicherungen spiegeln (nur neue Dateien)
@@ -223,13 +234,18 @@ export async function syncBackup({ force = false, log = console.log } = {}) {
     if (!h.files.has("README.md")) changes.push({ path: "README.md", content: Buffer.from(README) });
 
     const message = [`Sicherung ${started.slice(0, 10)}: ${updated} geprüft`, deleted.length ? `${deleted.length} gelöscht (${deleted.map((d) => d.name).join(", ")})` : "", mirrored ? `${mirrored} Sicherungen` : ""].filter(Boolean).join(", ");
-    const sha = await commit(h, changes, message);
+    if (mirrored) say(`${mirrored} neue Bild-/Rezept-Sicherungen`);
+    const sha = await commit(h, changes, message, say);
     const result = { at: started, result: "ok", files: changes.length, checked: updated, unchanged, deleted, mirrored, commit: sha };
     writeState({ ...state, recipes: known, last: result });
-    log(`[sicherung] ${changes.length ? `${changes.length} Dateien in ${repo()} (${message})` : "keine Änderungen"}`);
+    const secs = Math.round((Date.now() - Date.parse(started)) / 1000);
+    const took = secs < 120 ? `${secs} s` : `${Math.round(secs / 60)} min`;
+    say(`fertig nach ${took}: ${changes.length ? `${changes.length} Dateien in ${repo()} (${message}), Commit ${sha.slice(0, 7)}` : `keine Änderungen (${unchanged} Rezepte unverändert)`}`);
     return result;
   } catch (e) {
     writeState({ ...state, last: { at: started, result: "fehler", note: e.message.slice(0, 300) } });
+    say(`fehlgeschlagen: ${e.message}`);
+    e.logged = true;
     throw e;
   } finally {
     running = false;
@@ -274,7 +290,7 @@ export function startBackupSchedule({ log = console.log, notify = async () => {}
     if (state.day === today || !plan.days.includes(weekday) || hhmm < plan.time) return;
     writeState({ ...state, day: today });
     try {
-      const r = await syncBackup({ log });
+      const r = await syncBackup({ log, by: "Zeitplan" });
       if (r.deleted.length)
         await notify(
           L(
@@ -283,7 +299,7 @@ export function startBackupSchedule({ log = console.log, notify = async () => {}
           ),
         );
     } catch (e) {
-      log(`[sicherung] fehlgeschlagen: ${e.message}`);
+      if (!e.logged) log(`[sicherung] fehlgeschlagen: ${e.message}`);
       await notify(L(`⚠️ GitHub-Sicherung fehlgeschlagen: ${e.message}`, `⚠️ GitHub backup failed: ${e.message}`));
     }
   };

@@ -455,7 +455,7 @@ export function startWeb() {
           if (!backupReady()) return send(res, 400, { error: L("GitHub-Sicherung ist nicht eingerichtet", "GitHub backup is not set up") });
           if (backupRunning()) return send(res, 409, { error: L("Die Sicherung läuft gerade schon", "The backup is already running") });
           // Kann einige Minuten dauern – im Hintergrund, die Oberfläche zeigt „läuft“
-          syncBackup().catch((e) => console.error(`[sicherung] ${e.message}`));
+          syncBackup({ by: "von Hand" }).catch((e) => e.logged || console.error(`[sicherung] ${e.message}`));
           console.log("[web] GitHub-Sicherung von Hand gestartet");
           return send(res, 200, overview());
         }

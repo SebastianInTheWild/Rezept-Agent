@@ -5,6 +5,7 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
+import { stamp } from "./lib/protokoll.mjs"; // Zeitstempel TT.MM.JJJJ im Log
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
 const JOBS = join(REZEPTE, "auftraege");
 const INBOX = join(REZEPTE, "inbox");
-const log = (m) => console.log(`[${new Date().toLocaleString("de-DE")}] [slack] ${m}`);
+const log = (m) => console.log(`[${stamp()}] [slack] ${m}`);
 const HELP = () =>
   L(
     "Schick mir einen Link zu einem Rezept (auch HelloFresh), ein Instagram-Reel oder YouTube-Short, ein Foto (Kochbuchseite, Screenshot, Zettel) oder den Rezepttext selbst. Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.",

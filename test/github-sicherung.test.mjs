@@ -29,7 +29,13 @@ writeFileSync(join(data, "rezepte", "sicherungen", "1-bild-2026-10-30T08-00-00-0
 const gs = await import(APP("lib/github-sicherung.mjs"));
 
 test("Erster Lauf: leeres Repo anlegen, alle Rezepte mit Bild, Sicherungen spiegeln", async () => {
-  const r = await gs.syncBackup();
+  const lines = [];
+  const r = await gs.syncBackup({ log: (m) => lines.push(m), by: "von Hand" });
+  // Log: Start, Umfang, Hochladen, Ergebnis mit Dauer
+  assert.match(lines[0], /^\[sicherung\] Start \(von Hand\) → test\/sicherung$/);
+  assert.ok(lines.includes("[sicherung] 4 Rezepte in Tandoor, 0 in der Sicherung"));
+  assert.ok(lines.some((l) => /Dateien werden hochgeladen/.test(l)));
+  assert.match(lines.at(-1), /^\[sicherung\] fertig nach \d+ s: \d+ Dateien in test\/sicherung .*Commit [0-9a-f]{7}$/);
   const files = github.files();
   assert.ok(files.has("README.md") && files.has("index.json"));
   for (const id of [1, 2, 3, 4]) assert.ok(files.has(`rezepte/${id}/rezept.json`), `Rezept ${id}`);
@@ -44,7 +50,9 @@ test("Erster Lauf: leeres Repo anlegen, alle Rezepte mit Bild, Sicherungen spieg
 
 test("Zweiter Lauf ohne Änderungen: kein Commit, nichts hochgeladen", async () => {
   const before = github.blobPosts;
-  const r = await gs.syncBackup();
+  const lines = [];
+  const r = await gs.syncBackup({ log: (m) => lines.push(m) });
+  assert.match(lines.at(-1), /keine Änderungen \(4 Rezepte unverändert\)/);
   assert.equal(r.files, 0);
   assert.equal(r.unchanged, 4);
   assert.equal(github.blobPosts, before);
@@ -60,7 +68,9 @@ test("Geändertes Rezept: nur dieses wird neu übertragen", async () => {
 
 test("Gelöschtes Rezept wandert nach geloescht/ und ist wiederherstellbar", async () => {
   tandoor.recipes.delete(1);
-  const r = await gs.syncBackup();
+  const lines = [];
+  const r = await gs.syncBackup({ log: (m) => lines.push(m) });
+  assert.ok(lines.some((l) => l.includes("in Tandoor gelöscht: „Flammkuchen“ (#1)")));
   assert.deepEqual(r.deleted, [{ id: 1, name: "Flammkuchen" }]);
   const files = github.files();
   assert.ok(!files.has("rezepte/1/rezept.json"));
@@ -83,10 +93,18 @@ test("Gelöschtes Rezept wandert nach geloescht/ und ist wiederherstellbar", asy
 test("Schutz: fehlt mehr als die Hälfte der Rezepte, wird nichts als gelöscht markiert", async () => {
   const saved = new Map(tandoor.recipes);
   for (const id of [...tandoor.recipes.keys()]) tandoor.recipes.delete(id);
-  await assert.rejects(gs.syncBackup(), /zur Sicherheit abgebrochen/);
+  const lines = [];
+  await assert.rejects(gs.syncBackup({ log: (m) => lines.push(m) }), /zur Sicherheit abgebrochen/);
+  assert.match(lines.at(-1), /^\[sicherung\] fehlgeschlagen: .*zur Sicherheit abgebrochen/);
   assert.ok(github.files().has("rezepte/2/rezept.json"));
   assert.equal(gs.backupStatus().result, "fehler");
   for (const [k, v] of saved) tandoor.recipes.set(k, v);
+});
+
+test("Log: Zeitstempel immer TT.MM.JJJJ hh:mm:ss", async () => {
+  const { stamp } = await import(APP("lib/protokoll.mjs"));
+  assert.equal(stamp(new Date("2026-03-05T08:04:09Z")), "05.03.2026 09:04:09");
+  assert.equal(stamp(new Date("2026-11-02T23:30:00Z")), "03.11.2026 00:30:00");
 });
 
 test("Zeitplan: Uhrzeit aus zeitplan.conf, „aus“ schaltet ab", () => {
