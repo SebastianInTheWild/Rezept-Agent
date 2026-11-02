@@ -335,6 +335,11 @@ async function backupsApi(req, res, url) {
   }
   return send(res, 404, { error: L("Nicht gefunden", "Not found") });
 }
+// Zugangsdaten in der Oberfläche ändern: mit Passwort immer; ohne Passwort nur, wenn in Portainer/.env
+// WEB_ZUGANGSDATEN_OHNE_PASSWORT=an gesetzt ist (z. B. weil der Nginx Proxy Manager die Seite aufs Heimnetz beschränkt).
+// Der Schalter ist absichtlich NICHT in der Oberfläche einstellbar – sonst könnte jeder die Sperre selbst aufheben.
+const secretsEditable = () => Boolean(process.env.WEB_PASSWORT) || /^(an|on|ja|yes|1|true)$/i.test((process.env.WEB_ZUGANGSDATEN_OHNE_PASSWORT || "").trim());
+
 function authorized(req) {
   const pw = process.env.WEB_PASSWORT;
   if (!pw) return true;
@@ -410,7 +415,9 @@ export function startWeb() {
       const envState = () => ({
         lang: lang(),
         fields: envOverview(),
-        secrets: Boolean(process.env.WEB_PASSWORT),
+        secrets: secretsEditable(),
+        // Ohne Passwort, aber per Schalter freigegeben: Hinweis in der Oberfläche
+        open: secretsEditable() && !process.env.WEB_PASSWORT,
         running: agentIds().filter((id) => readStatus(id, "status.json")?.running),
       });
       if (req.method === "GET" && url.pathname === "/api/umgebung") return send(res, 200, envState());
@@ -418,7 +425,7 @@ export function startWeb() {
         if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const { values = {} } = await body(req);
         const secret = Object.keys(values).filter((k) => FIELDS.find((f) => f.key === k)?.secret);
-        if (secret.length && !process.env.WEB_PASSWORT) return send(res, 403, { error: L("Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen)", "Credentials can only be changed when this page has a password (set WEB_PASSWORT in Portainer)") });
+        if (secret.length && !secretsEditable()) return send(res, 403, { error: L("Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen) oder WEB_ZUGANGSDATEN_OHNE_PASSWORT=an in Portainer gesetzt ist", "Credentials can only be changed when this page has a password (set WEB_PASSWORT in Portainer) or WEB_ZUGANGSDATEN_OHNE_PASSWORT=an is set in Portainer") });
         try {
           setEnvValues(values);
         } catch (e) {
