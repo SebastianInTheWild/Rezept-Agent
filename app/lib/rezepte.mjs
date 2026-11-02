@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT } from "./tandoor.mjs";
+import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
@@ -548,6 +548,14 @@ export function validate(d, ctx) {
   if (!Array.isArray(d.steps) || !d.steps.length) errors.push("steps fehlt");
   if (d.devices !== undefined && !Array.isArray(d.devices)) errors.push("devices muss eine Liste sein");
   if (!Array.isArray(d.keywords)) errors.push("keywords muss eine Liste sein");
+  if (d.nutrition !== undefined && d.nutrition !== null) {
+    if (typeof d.nutrition !== "object" || Array.isArray(d.nutrition)) errors.push("nutrition muss ein Objekt sein: { calories, proteins, fats, carbohydrates } pro Portion");
+    else
+      for (const [k, v] of Object.entries(d.nutrition)) {
+        if (!NUTRIENTS[k]) errors.push(`nutrition.${k} gibt es nicht (erlaubt: ${Object.keys(NUTRIENTS).join(", ")})`);
+        else if (!(Number(v) >= 0) || Number(v) > (k === "calories" ? 5000 : 500)) errors.push(`nutrition.${k} = ${v} ist unplausibel (pro Portion)`);
+      }
+  }
   if (!Array.isArray(d.changes) || !d.changes.length) errors.push("changes fehlt (kurze Liste, was du gemacht hast)");
   const units = new Set(ctx.units);
   const foods = new Set(ctx.foods.map((f) => f.toLowerCase()));
@@ -623,7 +631,9 @@ export async function propose() {
   if (kind === "revise") {
     p = store.proposals[job.proposal];
     if (!p || p.status !== "open") return { ok: false, errors: ["Der Vorschlag ist nicht mehr offen"] };
-    before = simplify(await getRecipe(p.draft_id));
+    const rawDraft = await getRecipe(p.draft_id);
+    before = simplify(rawDraft);
+    if (d.nutrition && !DRY) payload.properties = await nutritionProperties(d.nutrition, rawDraft.properties || []);
     keepAiKw(before.keywords);
     if (DRY) return { ok: true, dry: true, payload, warnings, diff: diff(before, d) };
     await api("PATCH", `/api/recipe/${p.draft_id}/`, payload);
@@ -640,6 +650,8 @@ export async function propose() {
       if (dup.length) warnings.push(`${L("Gibt es schon", "Already exists")}: ${dup.map((r) => r.name).join(", ")}`);
     }
     if (DRY) return { ok: true, dry: true, kind, payload, warnings, diff: before && diff(before, d) };
+    // Entwurf bekommt eigene Eigenschaften (nie die des Originals – Tandoor würde sie sonst gemeinsam benutzen)
+    if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition);
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
@@ -691,6 +703,15 @@ export async function propose() {
   return { ok: true, proposal: p.id, draft_url: recipeUrl(p.draft_id), warnings, diff: dif?.lines };
 }
 
+/** „Pro Portion: 650 kcal · 25 g Eiweiß · 30 g Fett · 60 g Kohlenhydrate“ */
+export function nutritionText(n) {
+  const fmt = (v) => Math.round(Number(v)).toLocaleString(locale());
+  const parts = Object.entries(NUTRIENTS)
+    .filter(([k]) => n[k] !== undefined && n[k] !== null)
+    .map(([k, t]) => `${fmt(n[k])} ${t.unit} ${k === "calories" ? "" : L(t.de, t.en)}`.trim());
+  return `${L("Pro Portion", "Per serving")}: ${parts.join(" · ")}`;
+}
+
 export function proposalMessage(p, d, { kind, warnings = [], dif }) {
   const draftLink = link(recipeUrl(p.draft_id), L("Entwurf ansehen", "View draft"));
   const head = {
@@ -704,6 +725,7 @@ export function proposalMessage(p, d, { kind, warnings = [], dif }) {
     { type: "section", text: { type: "mrkdwn", text: cut(`*${L("Was ich gemacht habe", "What I did")}*\n${d.changes.map((c) => `• ${esc(c)}`).join("\n")}`) } },
   ];
   if (dif?.lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: cut(`*${L("Zutaten", "Ingredients")}* (${L("Schritte", "steps")} ${dif.steps})\n${dif.lines.slice(0, 25).map(esc).join("\n")}${dif.lines.length > 25 ? `\n… ${L("und", "and")} ${dif.lines.length - 25} ${L("weitere", "more")}` : ""}`) } });
+  if (d.nutrition) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `🥗 ${nutritionText(d.nutrition)}` }] });
   if (dif?.removed) warnings = [L(`${dif.removed} Zutat(en) entfernt – bitte prüfen`, `${dif.removed} ingredient(s) removed – please check`), ...warnings];
   blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: cut([...warnings.map((w) => `⚠️ ${esc(w)}`), `${draftLink} · ${L("Antworte im Thread, wenn ich etwas ändern soll.", "Reply in the thread if you want me to change something.")}`].join("\n")) }] });
   blocks.push(actions(p));
@@ -753,6 +775,8 @@ export async function applyProposal(id, user) {
     writeFileSync(join(REZEPTE, "sicherungen", `${orig.id}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`), JSON.stringify(orig));
     const d = simplify(draft);
     const payload = toTandoor(d, { name: stripDraft(draft.name), keywords: keywords.map((k) => k.name), privateRecipe: orig.private });
+    // Nährwerte aus dem Entwurf übernehmen, andere Eigenschaften des Originals behalten
+    if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition, orig.properties || []);
     await api("PATCH", `/api/recipe/${orig.id}/`, payload);
     const after = simplify(await getRecipe(orig.id));
     const left = diff(d, after);

@@ -75,11 +75,16 @@ export function fakeTandoor(recipes = []) {
     calls: [],
     mealPlans: [],
     mealTypes: [{ id: 1, name: "Abendessen", order: 0 }],
+    // wie die Open-Data-Typen einer neuen Tandoor-Instanz (Fett und Kalorien vorhanden, der Rest fehlt)
+    propertyTypes: [{ id: 1, name: "Fat", unit: "g", open_data_slug: "property-fat" }, { id: 2, name: "Calories", unit: "kcal", open_data_slug: "property-calories" }, { id: 3, name: "Saturated Fat", unit: "g" }],
     shopping: [],
     units: ["g", "kg", "ml", "l", "EL", "TL", "Prise", "Stück", "Zehe", "Bund"].map((name, id) => ({ id, name })),
     foods: ["Wirsing", "Speck", "Sahne", "Salz", "Pfeffer", "Zwiebel", "Spaghetti"].map((name, id) => ({ id, name })),
     keywords: ["Einfach", "Herzhaft", "Hauptgericht", "geprüft"].map((name, id) => ({ id, name })),
   };
+  // Eigenschaften wie Tandoor speichern: eigene id, vollständiger Typ
+  let propId = 100;
+  t.props = (list) => list.map((p) => ({ id: p.id ?? propId++, property_amount: p.property_amount, property_type: t.propertyTypes.find((x) => x.id === p.property_type.id) || p.property_type }));
   t.handle = async (url, init = {}) => {
     const u = new URL(url);
     const path = u.pathname;
@@ -107,7 +112,7 @@ export function fakeTandoor(recipes = []) {
       if (!r) return json({ detail: "Not found." }, 404);
       if (method === "GET") return json(r);
       if (method === "PATCH") {
-        Object.assign(r, body, body.keywords ? { keywords: body.keywords.map((k, i) => ({ id: i, name: k.name, label: k.name })) } : {});
+        Object.assign(r, body, body.keywords ? { keywords: body.keywords.map((k, i) => ({ id: i, name: k.name, label: k.name })) } : {}, body.properties ? { properties: t.props(body.properties) } : {});
         r.updated_at = new Date().toISOString();
         return json(r);
       }
@@ -115,7 +120,7 @@ export function fakeTandoor(recipes = []) {
     }
     if (path === "/api/recipe/" && method === "POST") {
       const id = t.nextId++;
-      const r = { ...body, id, image: null, keywords: (body.keywords || []).map((k, i) => ({ id: i, name: k.name })), steps: (body.steps || []).map((s, i) => ({ ...s, id: i, ingredients: (s.ingredients || []).map((x, k) => ({ ...x, id: k, food: x.food, unit: x.unit })) })), updated_at: new Date().toISOString() };
+      const r = { ...body, properties: t.props(body.properties || []), id, image: null, keywords: (body.keywords || []).map((k, i) => ({ id: i, name: k.name })), steps: (body.steps || []).map((s, i) => ({ ...s, id: i, ingredients: (s.ingredients || []).map((x, k) => ({ ...x, id: k, food: x.food, unit: x.unit })) })), updated_at: new Date().toISOString() };
       t.recipes.set(id, r);
       return json(r, 201);
     }
@@ -126,6 +131,12 @@ export function fakeTandoor(recipes = []) {
     if (path === "/api/unit/") return page(t.units);
     if (path === "/api/food/") return page(t.foods);
     if (path === "/api/keyword/") return page(t.keywords);
+    if (path === "/api/property-type/" && method === "POST") {
+      const pt = { id: t.propertyTypes.length + 1, ...body };
+      t.propertyTypes.push(pt);
+      return json(pt, 201);
+    }
+    if (path === "/api/property-type/") return page(t.propertyTypes);
     if (path === "/api/meal-type/") return page(t.mealTypes);
     if (path === "/api/meal-plan/" && method === "POST") {
       const plan = { ...body, id: t.mealPlans.length + 1 };

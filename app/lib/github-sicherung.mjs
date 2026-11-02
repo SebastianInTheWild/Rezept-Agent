@@ -16,7 +16,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { all, api as tandoorApi, base, getRecipe, isDraft, simplify, toTandoor, uploadImage, recipeUrl, SYSTEM_KW } from "./tandoor.mjs";
+import { all, api as tandoorApi, base, getRecipe, isDraft, simplify, toTandoor, uploadImage, recipeUrl, SYSTEM_KW, nutritionProperties } from "./tandoor.mjs";
 import { imageType } from "./bild.mjs";
 import { L } from "./i18n.mjs";
 
@@ -335,6 +335,7 @@ export async function restoreDeleted(id) {
   const d = simplify(saved);
   const keywords = d.keywords.filter((k) => !SYSTEM_KW.includes(k) || k === "geprüft");
   const payload = { ...toTandoor(d, { name: saved.name, keywords, privateRecipe: Boolean(saved.private) }), servings_text: saved.servings_text || undefined };
+  if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition);
   const created = await tandoorApi("POST", "/api/recipe/", payload);
   const imgPath = [...h.files.keys()].find((p) => p.startsWith(`${dir}/bild.`));
   if (imgPath) await uploadImage(created.id, await readRepoFile(imgPath), `${created.id}`).catch(() => {});

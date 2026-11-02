@@ -61,6 +61,60 @@ export async function uploadImage(id, buffer, name = "bild") {
 }
 const num = (x) => (x === null || x === undefined || x === "" ? 0 : Number(x));
 
+// ---------- Nährwerte (Tandoor-„Eigenschaften“ am Rezept, pro Portion) ----------
+// Tandoor 2.x zeigt Nährwerte über properties (property_type + property_amount pro Portion); das alte Feld
+// „nutrition“ erscheint nicht mehr. Die vier Typen werden über Namen/open_data_slug gefunden oder angelegt.
+export const NUTRIENTS = {
+  calories: { de: "Kalorien", en: "Calories", unit: "kcal", match: /calor|kalor|energ|kcal/i },
+  proteins: { de: "Eiweiß", en: "Proteins", unit: "g", match: /prote|eiwei/i },
+  fats: { de: "Fett", en: "Fat", unit: "g", match: /(^|[\s_-])(fats?|fett)($|[\s_-])/i },
+  carbohydrates: { de: "Kohlenhydrate", en: "Carbohydrates", unit: "g", match: /carb|kohlenhydrat/i },
+};
+// Typ → Nährwert-Schlüssel; Energie in kJ und Unterarten („Gesättigte Fettsäuren“, „davon Zucker“) zählen nicht
+const nutrientOf = (type) => {
+  const text = `${type?.open_data_slug || ""} ${type?.name || ""}`.trim();
+  if (/kj/i.test(type?.unit || "") || /säur|acid|zucker|sugar|satur|gesättigt/i.test(text)) return undefined;
+  return Object.keys(NUTRIENTS).find((k) => NUTRIENTS[k].match.test(text));
+};
+
+/** Nährwerte pro Portion aus den Eigenschaften eines Rezepts (oder null) */
+export function nutritionOf(r) {
+  const out = {};
+  for (const p of r.properties || []) {
+    const k = nutrientOf(p.property_type);
+    if (k && p.property_amount !== null && p.property_amount !== undefined) out[k] = num(p.property_amount);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+let typeCache = null;
+/** Eigenschafts-Typen für die vier Nährwerte (vorhandene nutzen, fehlende anlegen) */
+async function nutrientTypes() {
+  if (typeCache) return typeCache;
+  const existing = await all("/api/property-type/").catch(() => []);
+  const types = {};
+  for (const [k, n] of Object.entries(NUTRIENTS)) {
+    types[k] = existing.find((t) => nutrientOf(t) === k) || (await api("POST", "/api/property-type/", { name: L(n.de, n.en), unit: n.unit }));
+  }
+  return (typeCache = types);
+}
+
+/**
+ * Eigenschaften für ein Rezept: Nährwerte setzen, andere Eigenschaften (z. B. selbst angelegte) behalten.
+ * existing = bisherige properties des Rezepts (mit id), damit Tandoor sie aktualisiert statt doppelt anlegt.
+ */
+export async function nutritionProperties(nutrition, existing = []) {
+  const types = await nutrientTypes();
+  const others = existing.filter((p) => !nutrientOf(p.property_type)).map((p) => ({ id: p.id, property_amount: p.property_amount, property_type: { id: p.property_type.id, name: p.property_type.name } }));
+  const mine = Object.entries(nutrition || {})
+    .filter(([k, v]) => NUTRIENTS[k] && Number.isFinite(Number(v)))
+    .map(([k, v]) => {
+      const old = existing.find((p) => nutrientOf(p.property_type) === k);
+      return { ...(old ? { id: old.id } : {}), property_amount: Math.round(Number(v) * 10) / 10, property_type: { id: types[k].id, name: types[k].name } };
+    });
+  return [...others, ...mine];
+}
+
 // Tandoor → einfaches Format (für Claude lesbar, ohne IDs)
 export function simplify(r) {
   const steps = [...r.steps].sort((a, b) => a.order - b.order);
@@ -75,6 +129,8 @@ export function simplify(r) {
     waiting_time: r.waiting_time,
     source_url: r.source_url || "",
     keywords: r.keywords.map((k) => k.name),
+    // Nährwerte pro Portion (kcal, g) – fehlt das Feld, hat das Rezept noch keine
+    ...(nutritionOf(r) ? { nutrition: nutritionOf(r) } : {}),
     has_image: Boolean(r.image),
     updated_at: r.updated_at,
     devices: dev ? dev.instruction.split("\n").map((l) => l.replace(/^\s*[•\-*]\s*/, "").trim()).filter(Boolean) : [],
