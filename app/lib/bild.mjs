@@ -30,6 +30,7 @@ export const googleModel = () => (process.env.GOOGLE_BILD_MODELL || process.env.
 export const googlePrice = () => imagePriceFor(googleModel());
 const NAMES = { google: "Google Nano Banana", cloudflare: "Cloudflare FLUX", openai: "OpenAI GPT Image" };
 let lastProvider = "";
+let lastReference = false; // letztes Google-Bild mit Referenzfoto aus dem Video
 
 // Bildbeschreibung aus dem Rezept mit einheitlichem Stil aus agents/bild-stil.md (Platzhalter {{name}}, {{gericht}}, {{zutaten}}).
 // Der Agent hilft mit image_prompt nach (wie das fertige Gericht angerichtet aussieht); sonst dient die Rezeptbeschreibung.
@@ -116,14 +117,19 @@ const num = (n) => n.toLocaleString(locale());
 export const neuronsText = (n) => L(`heute noch ${num(n.free)} von ${num(n.limit)} Neuronen frei (${num(n.used)} verbraucht)`, `${num(n.free)} of ${num(n.limit)} neurons left today (${num(n.used)} used)`);
 
 // Google Gemini API (Nano Banana): Bild kommt als base64 in candidates[].content.parts[].inlineData
-async function google(prompt, model = "gemini-nano-banana-2.1") {
+// Referenzbild (Standbild des fertigen Gerichts aus dem Video): nur fürs Aussehen des Essens, der Stil bleibt
+const REFERENCE_NOTE =
+  "The attached photo is a still frame from the original cooking video and shows the finished dish. Use it only as a reference for what the food itself looks like – its colours, shape, texture, toppings and how it is arranged. Do not copy the background, table, plate or bowl, lighting, camera angle, people, hands, text, captions or watermarks from it; follow the styling described above.";
+
+async function google(prompt, model = "gemini-nano-banana-2.1", reference = null) {
   // Das ältere gemini-2.5-flash-image kennt keine Bildgröße, nur das Seitenverhältnis
   const imageConfig = { aspectRatio: "3:2", ...(/2\.5-flash-image/.test(model) ? {} : { imageSize: "1K" }) };
+  const parts = reference ? [{ inlineData: { mimeType: imageType(reference).mime, data: reference.toString("base64") } }, { text: `${prompt}\n\n${REFERENCE_NOTE}` }] : [{ text: prompt }];
   const call = () =>
     fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["IMAGE"], imageConfig } }),
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseModalities: ["IMAGE"], imageConfig } }),
     });
   // Vorübergehende Google-Fehler (überlastet, „Deadline expired“ = 504) bis zu zweimal wiederholen
   let r, j;
@@ -157,14 +163,15 @@ async function openai(prompt) {
 }
 
 const RUN = {
-  google: (prompt) => google(prompt, googleModel()),
+  google: (prompt, reference) => google(prompt, googleModel(), reference),
   cloudflare: (prompt) => cloudflare(prompt, process.env.BILD_MODELL || undefined),
   openai,
 };
 
 // Optionen: only = nur dieser Anbieter, ohne Ersatz (z. B. "google" beim Erneuern); noLimit = BILD_PRO_TAG nicht anwenden
-// (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem)
-export async function generateImage(d, dir, { only, noLimit = false } = {}) {
+// (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem);
+// reference = Pfad eines Fotos vom fertigen Gericht (Standbild aus dem Video) – nur Google nutzt es, die anderen nur den Text
+export async function generateImage(d, dir, { only, noLimit = false, reference } = {}) {
   const main = only || provider();
   if (!READY[main]?.()) throw new Error(only === "google" ? L("GEMINI_API_KEY fehlt – Google ist nicht eingerichtet", "GEMINI_API_KEY missing – Google is not set up") : `${L("kein Bild-Anbieter eingerichtet", "no image provider set up")} – ${imageSetupHint()}`);
   mkdirSync(dir, { recursive: true });
@@ -174,16 +181,22 @@ export async function generateImage(d, dir, { only, noLimit = false } = {}) {
   const cnt = countToday(dir);
   if (!noLimit && cnt.n >= limit) throw new Error(L(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`, `Daily limit of ${limit} pictures reached (BILD_PRO_TAG)`));
   const prompt = imagePrompt(d);
+  let ref = null;
+  try {
+    ref = reference && existsSync(reference) ? readFileSync(reference) : null;
+  } catch {}
   let img;
   try {
-    img = await RUN[main](prompt);
+    img = await RUN[main](prompt, ref);
     lastProvider = main;
+    lastReference = Boolean(ref) && main === "google";
   } catch (e) {
     // Ersatz: Cloudflare mit seinem Standardmodell (BILD_MODELL gilt nur für den gewählten Anbieter)
     if (only || main === "cloudflare" || !cloudflareReady()) throw e;
     try {
       img = await cloudflare(prompt);
       lastProvider = "cloudflare";
+      lastReference = false;
     } catch (e2) {
       throw new Error(`${e.message} / ${L("Ersatz", "fallback")} ${e2.message}`);
     }
@@ -200,12 +213,12 @@ export const styleId = () => createHash("sha1").update(imageStyle()).digest("hex
 export function lastImageInfo() {
   const model =
     lastProvider === "google" ? googleModel() : lastProvider === "openai" ? process.env.BILD_MODELL || "gpt-image-2" : lastProvider === "cloudflare" ? (provider() === "cloudflare" && process.env.BILD_MODELL) || "flux-2-klein-9b" : "";
-  return { provider: lastProvider || "?", model: model || "?", style: styleId() };
+  return { provider: lastProvider || "?", model: model || "?", style: styleId(), ...(lastReference ? { reference: true } : {}) };
 }
 
 export async function lastImageNote() {
   const name = NAMES[lastProvider] || lastProvider;
-  if (lastProvider === "google") return `${name} (${googleModel()})`;
+  if (lastProvider === "google") return `${name} (${googleModel()})${lastReference ? L(" · mit dem fertigen Gericht aus dem Video als Vorlage", " · with the finished dish from the video as reference") : ""}`;
   if (lastProvider !== "cloudflare") return name;
   const n = await neurons().then(neuronsText, (e) => `${L("Neuronen unbekannt", "neurons unknown")}: ${e.message}`);
   return `${name}${provider() !== "cloudflare" ? L(" (Ersatz)", " (fallback)") : ""} · ${n}`;
