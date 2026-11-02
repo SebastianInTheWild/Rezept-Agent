@@ -43,6 +43,9 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
+      - id: zeit
+        run: echo "jetzt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -50,6 +53,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Version und Bauzeit für die Neustart-Meldung in Slack (stehen im Dockerfile hinter den großen Schichten,
+          # der Cache für apt/yt-dlp/Claude Code bleibt also erhalten)
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+            APP_BUILD=${{ steps.zeit.outputs.jetzt }}
           # Montags ohne Cache bauen, damit Basis-Image und Claude Code wirklich neu sind
           no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha

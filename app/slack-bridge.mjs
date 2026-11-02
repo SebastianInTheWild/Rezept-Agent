@@ -7,6 +7,7 @@
 import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
@@ -445,6 +446,31 @@ if (manifestSyncReady()) {
 
 // Nach einem Neustart: laufendes „Alle Bilder erneuern“ fortsetzen
 if (loadAll()?.status === "running") setTimeout(runAll, 10_000);
+
+// Neustart-Meldung: einmal pro Containerstart (start.sh schreibt die Startzeit), nicht wenn nur die Brücke neu startet.
+// Mit Version (Commit aus dem Image) und ob es ein Update war. Abschalten: NEUSTART_MELDUNG=aus.
+const START_FILE = join(tmpdir(), "rezepte-containerstart"); // im Container /tmp
+const ANNOUNCED_FILE = join(tmpdir(), "rezepte-start-gemeldet");
+const VERSION_FILE = join(REZEPTE, "version.json"); // zuletzt gemeldete Version (bleibt über Updates erhalten)
+async function announceStart() {
+  if (/^(aus|off|nein|0)$/i.test((process.env.NEUSTART_MELDUNG || "").trim()) || !CHANNEL()) return;
+  const started = existsSync(START_FILE) ? readFileSync(START_FILE, "utf8").trim() : "";
+  if (!started || (existsSync(ANNOUNCED_FILE) && readFileSync(ANNOUNCED_FILE, "utf8").trim() === started)) return;
+  writeFileSync(ANNOUNCED_FILE, started);
+  const version = (process.env.APP_VERSION || "dev").trim();
+  const short = version.slice(0, 7);
+  const before = existsSync(VERSION_FILE) ? JSON.parse(readFileSync(VERSION_FILE, "utf8")).version : null;
+  writeFileSync(VERSION_FILE, JSON.stringify({ version, at: new Date().toISOString() }));
+  const commit = (v) => (/^[0-9a-f]{7,40}$/.test(v) ? link(`https://github.com/SebastianInTheWild/Rezept-Agent/commit/${v}`, v.slice(0, 7)) : v.slice(0, 7));
+  const built = process.env.APP_BUILD ? new Date(process.env.APP_BUILD).toLocaleString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const kind =
+    before && before !== version
+      ? L(`⬆️ *Update* von ${commit(before)} auf ${commit(version)}`, `⬆️ *Update* from ${commit(before)} to ${commit(version)}`)
+      : L(`🔄 Neustart · Version ${commit(version)}`, `🔄 Restart · version ${commit(version)}`);
+  const text = [L("✅ *Rezept-Helfer läuft wieder*", "✅ *Recipe helper is running again*"), kind, built ? L(`Image vom ${built}`, `image built ${built}`) : ""].filter(Boolean).join(" · ");
+  await post(CHANNEL(), text).then(() => log(`Neustart gemeldet (${short}${before && before !== version ? `, vorher ${before.slice(0, 7)}` : ""})`), (e) => log(`Neustart-Meldung fehlgeschlagen: ${e.message}`));
+}
+announceStart();
 
 // Einmal täglich alte Dateien wegräumen (Fotos, Eingänge, Aufträge nach 30 Tagen, Sicherungen nach 180 Tagen)
 const tidy = () => {

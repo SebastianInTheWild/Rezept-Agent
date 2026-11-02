@@ -9,6 +9,9 @@ if ! command -v claude >/dev/null 2>&1 || [ "${CLAUDE_UPDATE:-0}" = "1" ]; then
   npm install -g @anthropic-ai/claude-code --no-fund --no-audit
 fi
 echo "Claude Code $(claude --version 2>/dev/null || echo '?')"
+# Startzeit des Containers: läuft bei jedem Containerstart (auch nach Neustart), nicht bei einem Neustart nur der Slack-Brücke.
+# Die Brücke meldet daran einmal pro Containerstart in Slack, dass der Agent wieder läuft.
+date +%s > /tmp/rezepte-containerstart 2>/dev/null || true
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] || grep -q CLAUDE_CODE_OAUTH_TOKEN "${DATA_DIR:-/data}/umgebung.json" 2>/dev/null || echo "WARNUNG: CLAUDE_CODE_OAUTH_TOKEN fehlt – auf einem PC mit Claude Code „claude setup-token“ ausführen und in der Weboberfläche unter Einstellungen eintragen"
 # Slack-Brücke läuft immer neben dem Zeitplan (die Tokens können auch aus der Weboberfläche kommen – fehlen sie, wartet sie);
 # startet sich bei Fehlern neu

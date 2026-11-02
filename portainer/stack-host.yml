@@ -30,6 +30,8 @@ services:
       # Slack-Manifest automatisch einspielen (optional): App-ID und Refresh-Token der App-Konfiguration
       SLACK_APP_ID: ${SLACK_APP_ID:-}
       SLACK_CONFIG_TOKEN: ${SLACK_CONFIG_TOKEN:-}
+      # Nach jedem Containerstart „läuft wieder“ mit Version in den Kanal schreiben (Standard an, „aus“ = nein)
+      NEUSTART_MELDUNG: ${NEUSTART_MELDUNG:-}
       CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
       CF_AI_TOKEN: ${CF_AI_TOKEN:-}
       BILD_ANBIETER: ${BILD_ANBIETER:-}
