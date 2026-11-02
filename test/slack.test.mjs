@@ -116,6 +116,39 @@ test("Knopf „🎨 Neues Bild“: Rückmeldung am Vorschlag, die übrigen Knöp
   assert.equal(last.blocks.filter((b) => b.block_id === "rzimgstatus").length, 1, "genau eine Statuszeile");
 });
 
+test("/offen neu schickt offene Vorschläge und Pläne mit aktuellen Knöpfen neu", async () => {
+  const { readFileSync } = await import("node:fs");
+  const file = join(data, "rezepte", "vorschlaege.json");
+  const store = JSON.parse(readFileSync(file, "utf8"));
+  store.proposals.p2.slack = { channel: "C1", thread_ts: "8.0", last_ts: "8.0" };
+  store.proposals.p2.changes = ["Mengen ergänzt"];
+  store.plans = { w1: { id: "w1", status: "open", servings: 2, summary: "", days: [{ date: "2026-11-03", recipe_id: 1, name: "Lasagne", servings: 2 }], slack: { channel: "C1", thread_ts: "9.0", last_ts: "9.0" } } };
+  writeFileSync(file, JSON.stringify(store));
+
+  // Nur im Rezept-Kanal
+  const outside = slack.responses.length;
+  socket.send({ type: "slash_commands", payload: { command: "/offen", text: "neu", user_id: "U1", channel_id: "C-fremd", response_url: "https://slack.test/response" } });
+  assert.ok(await until(() => slack.responses.length > outside));
+  assert.match(slack.responses.at(-1), /nur im Rezept-Kanal/);
+
+  const posts = slack.posts.length;
+  const updates = slack.updates.length;
+  assert.match(await command("/offen", "neu"), /2 von 2 offenen Vorschlägen neu geschickt/);
+  const sent = slack.posts.slice(posts).map((p) => JSON.stringify(p.blocks));
+  assert.ok(sent.some((b) => b.includes("rz_draft_image") && b.includes("Mengen ergänzt") && b.includes("Neu geschickt")), "Vorschlag mit „🎨 Neues Bild“");
+  assert.ok(sent.some((b) => b.includes("rz_plan_shop")), "Wochenplan");
+  // Alte Nachrichten werden zum Verweis ohne Knöpfe
+  const old = slack.updates.slice(updates).filter((u) => u.ts === "8.0" || u.ts === "9.0");
+  assert.equal(old.length, 2);
+  assert.ok(old.every((u) => !JSON.stringify(u.blocks).includes("actions")));
+  // Antworten im alten Thread gehören weiter zum Vorschlag
+  const after = JSON.parse(readFileSync(file, "utf8"));
+  assert.ok(after.proposals.p2.slack.old_ts.includes("8.0"));
+  assert.notEqual(after.proposals.p2.slack.last_ts, "8.0");
+  const { proposalByThread } = await import(APP("lib/rezepte.mjs"));
+  assert.equal(proposalByThread("8.0")?.id, "p2");
+});
+
 test("Knöpfe aus fremden Kanälen werden ignoriert", async () => {
   const before = slack.updates.length;
   socket.send({ type: "interactive", payload: { type: "block_actions", user: { id: "U3" }, channel: { id: "C-fremd" }, message: { ts: "1.0", text: "x", blocks: [] }, actions: [{ action_id: "rz_apply", value: "p1" }] } });

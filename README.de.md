@@ -96,7 +96,7 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | Befehl | Was er macht |
 | --- | --- |
 | `/statistik` | Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen, ohne Bild |
-| `/offen` | Vorschläge, die auf eine Entscheidung warten, mit Link |
+| `/offen` `[neu]` | Vorschläge, die auf eine Entscheidung warten, mit Link. `/offen neu` schickt alle offenen Vorschläge und Wochenpläne noch einmal in den Kanal, mit den aktuellen Knöpfen (z. B. **🎨 Neues Bild**). Die alte Nachricht wird zum Verweis auf die neue, Antworten in ihrem Thread funktionieren weiter |
 | `/rezept <Name>` | Rezept in Tandoor suchen, mit Status |
 | `/ohne-bild [Anzahl \| Name]` | Rezepte ohne Bild, jedes als eigene Nachricht im Kanal mit Knopf **🎨 Bild erzeugen** (KI-Foto direkt in Tandoor, danach **🔄 Anderes Bild erzeugen**). Ohne Angabe 5 Stück; schon gezeigte kommen erst nach 7 Tagen wieder, mit Name wird gezielt gesucht. Ein eigenes Foto wird nie ersetzt. |
 | `/bild-neu <Name \| ID>` | Neues KI-Bild mit Google (`GOOGLE_BILD_MODELL`) für ein Rezept, auch wenn es schon ein Foto hat. Bei mehreren Treffern zeigt er die Liste mit IDs. |

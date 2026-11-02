@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
-import { post, slackReady, link, esc } from "./slack.mjs";
+import { slack, post, update, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
 import { fetchHelloFresh, isHelloFresh } from "./hellofresh.mjs";
@@ -709,8 +709,15 @@ export async function propose() {
     const r = await post(channel, msg.text, msg.blocks, thread);
     p.slack = { channel, thread_ts: thread || r.ts, last_ts: r.ts };
   } else warnings.push(L("Slack nicht eingerichtet – Vorschlag nur in Tandoor", "Slack not set up – proposal only in Tandoor"));
-  // Bildbeschreibung merken – für „🎨 Neues Bild“ am Vorschlag
-  store.proposals[p.id] = { ...p, name: d.name.trim(), ...(d.image_prompt ? { image_prompt: String(d.image_prompt).slice(0, 500) } : {}), updated: new Date().toISOString() };
+  // Bildbeschreibung merken – für „🎨 Neues Bild“ am Vorschlag; Änderungen und Hinweise – für „/offen neu“
+  store.proposals[p.id] = {
+    ...p,
+    name: d.name.trim(),
+    ...(d.image_prompt ? { image_prompt: String(d.image_prompt).slice(0, 500) } : {}),
+    changes: d.changes.map((c) => String(c).slice(0, 500)).slice(0, 30),
+    warnings: warnings.map((w) => String(w).slice(0, 300)).slice(0, 10),
+    updated: new Date().toISOString(),
+  };
   saveStore(store);
   writeFileSync(path, "{}");
   if (job) saveJob({ ...job, result: p.id });
@@ -781,6 +788,37 @@ export async function regenerateDraftImage(id) {
   }
   saveStore(store);
   return { ok: true, name: p.name, url: recipeUrl(p.draft_id), info: await lastImageNote(), replacesOld };
+}
+
+/**
+ * Slack-Nachricht eines offenen Vorschlags bzw. Plans neu in den Kanal schicken („/offen neu“) – im aktuellen Format
+ * mit allen Knöpfen. Die alte Nachricht wird zu einem Verweis (ohne Knöpfe), Antworten in ihrem Thread zählen weiter.
+ */
+export async function resendSlack(item, msg, channel = item.slack?.channel || CHANNEL()) {
+  const blocks = [{ type: "context", elements: [{ type: "mrkdwn", text: L("🔁 Neu geschickt – wartet noch auf deine Entscheidung", "🔁 Sent again – still waiting for your decision") }] }, ...msg.blocks];
+  const r = await post(channel, msg.text, blocks);
+  const old = item.slack;
+  item.slack = { channel, thread_ts: r.ts, last_ts: r.ts, old_ts: uniq([...(old?.old_ts || []), old?.thread_ts, old?.last_ts].filter(Boolean)).slice(-20) };
+  if (old?.last_ts) {
+    const href = await slack("chat.getPermalink", { channel, message_ts: r.ts }).then((x) => x.permalink, () => "");
+    const text = `🔁 ${L("Neu geschickt", "Sent again")}: ${href ? link(href, msg.text) : esc(msg.text)}`;
+    await update(old.channel || channel, old.last_ts, text, [{ type: "context", elements: [{ type: "mrkdwn", text }] }]).catch(() => {});
+  }
+  return r.ts;
+}
+
+/** Offenen Vorschlag neu schicken – Nachricht wird aus Entwurf (und Original) neu gebaut */
+export async function resendProposal(id) {
+  const { store, p } = openProposal(id);
+  const d = simplify(await getRecipe(p.draft_id));
+  d.name = p.name;
+  d.changes = p.changes?.length ? p.changes : [L("Details stehen im Entwurf (Vorschlag von vor der Neu-Senden-Funktion)", "Details are in the draft (proposal from before the resend feature)")];
+  let dif = null;
+  if (p.kind === "quality") dif = diff(simplify(await getRecipe(p.original_id)), d);
+  await resendSlack(p, proposalMessage(p, d, { kind: p.kind, warnings: p.warnings || [], dif }));
+  p.updated = new Date().toISOString();
+  saveStore(store);
+  return { ok: true, name: p.name };
 }
 
 // ---------- Entscheidungen (Knöpfe) ----------
@@ -896,5 +934,6 @@ export function cleanup() {
   return removed;
 }
 
-export const proposalByThread = (ts) => Object.values(loadStore().proposals).find((p) => p.slack && (p.slack.thread_ts === ts || p.slack.last_ts === ts));
+export const slackMatches = (s, ts) => Boolean(s && (s.thread_ts === ts || s.last_ts === ts || s.old_ts?.includes(ts)));
+export const proposalByThread = (ts) => Object.values(loadStore().proposals).find((p) => slackMatches(p.slack, ts));
 export { SERVINGS_TEXT };

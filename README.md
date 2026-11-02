@@ -98,7 +98,7 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | Command | What it does |
 | --- | --- |
 | `/stats` (`/statistik`) | Recipe statistics: total, checked, open, still to check, without picture |
-| `/open` (`/offen`) | Proposals waiting for a decision, with link |
+| `/open` (`/offen`) `[resend]` | Proposals waiting for a decision, with link. `/open resend` posts all open proposals and meal plans to the channel again, with the current buttons (e.g. **🎨 New picture**). The old message becomes a link to the new one; replies in its thread still work |
 | `/recipe <name>` (`/rezept`) | Search a recipe in Tandoor, with status |
 | `/no-image [count \| name]` (`/ohne-bild`) | Recipes without a picture, each as its own message in the channel with a **🎨 Create picture** button (AI photo straight into Tandoor, then **🔄 Create another picture**). Default 5; recipes already shown come back after 7 days, with a name it searches specifically. Own photos are never replaced. |
 | `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |

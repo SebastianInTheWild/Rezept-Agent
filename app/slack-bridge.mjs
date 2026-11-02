@@ -14,8 +14,8 @@ import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
-import { planByThread, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
+import { planByThread, openPlans, resendPlan, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
@@ -350,7 +350,7 @@ log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agen
 const QUALITY = process.env.REZEPT_QUALITAET_AGENT || "rezept-qualitaet";
 const COMMANDS = () => [
   ["/statistik", "", L("Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen", "Recipe statistics: total, checked, open, still to check")],
-  ["/offen", "", L("Vorschläge, die auf deine Entscheidung warten – mit Link", "Proposals waiting for your decision – with link")],
+  ["/offen", L("[neu]", "[resend]"), L("Vorschläge, die auf deine Entscheidung warten – mit Link; mit `neu` werden alle noch einmal mit den aktuellen Knöpfen in den Kanal geschickt", "Proposals waiting for your decision – with link; with `resend` they are all posted to the channel again with the current buttons")],
   ["/rezept", L("<Name>", "<name>"), L("Rezept in Tandoor suchen, mit Status", "Search a recipe in Tandoor, with status")],
   ["/ohne-bild", L("[Anzahl | Name]", "[count | name]"), L("Rezepte ohne Bild als einzelne Nachrichten im Kanal, mit Knopf für ein KI-Foto (Standard 5)", "Recipes without a picture as single messages in the channel, with a button for an AI photo (default 5)")],
   ["/bild-neu", L("<Name | ID>", "<name | ID>"), L("Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird)", "New AI picture from Google for one recipe (replaces the old one, which is backed up first)")],
@@ -381,19 +381,36 @@ const inChannel = (c) => c.channel_id === CHANNEL();
 const notInChannel = () => L(`Das geht nur im Rezept-Kanal <#${CHANNEL()}>.`, `This only works in the recipe channel <#${CHANNEL()}>.`);
 const NO_IMAGE_MAX = 20;
 
+// „/offen neu“: alle offenen Vorschläge und Wochenpläne noch einmal in den Kanal schicken (älteste zuerst)
+async function resendOpen(c) {
+  if (!inChannel(c)) return notInChannel();
+  const items = [...openProposals().map((p) => ({ name: p.name, run: () => resendProposal(p.id) })), ...openPlans().map((p) => ({ name: L("Wochenplan", "Meal plan"), run: () => resendPlan(p.id) }))];
+  if (!items.length) return L("✅ Keine offenen Vorschläge – alles entschieden.", "✅ No open proposals – everything decided.");
+  const failed = [];
+  for (const it of items)
+    await it.run().catch((e) => {
+      log(`Neu schicken fehlgeschlagen (${it.name}): ${e.message}`);
+      failed.push(`${esc(it.name)} (${esc(e.message.slice(0, 120))})`);
+    });
+  const sent = items.length - failed.length;
+  return [L(`🔁 ${sent} von ${items.length} offenen Vorschlägen neu geschickt.`, `🔁 Sent ${sent} of ${items.length} open proposals again.`), ...failed.map((f) => `⚠️ ${f}`)].join("\n");
+}
+
 const commands = {
   "/hilfe": async () => helpText(),
   "/statistik": async () => statsMessage(await stats()),
   "/google": async () => usageMessage(),
   "/neuronen": async () => neurons().then((n) => `🧠 Cloudflare Workers AI: ${neuronsText(n)}. ${L(`Das Kontingent beginnt um ${resetTime()} Uhr neu.`, `The quota resets at ${resetTime()}.`)}`, (e) => `${L("Neuronen nicht abrufbar", "Neurons not available")}: ${e.message}`),
 
-  "/offen": async () => {
+  "/offen": async (c) => {
+    if (/^(neu|nochmal|erneut|new|resend|again)$/i.test(c.text.trim())) return resendOpen(c);
     const list = openProposals();
     if (!list.length) return L("✅ Keine offenen Vorschläge – alles entschieden.", "✅ No open proposals – everything decided.");
     const shown = list.slice(0, 20);
     const links = await Promise.all(shown.map(permalink));
     const lines = shown.map((p, i) => `• ${links[i] ? link(links[i], p.name) : esc(p.name)} · ${p.kind === "quality" ? L("Qualität", "quality") : "Import"} · ${ago(p.created)}`);
     if (list.length > shown.length) lines.push(L(`… und ${list.length - shown.length} weitere`, `… and ${list.length - shown.length} more`));
+    lines.push(L(`_\`${cmd("/offen")} neu\` schickt alle noch einmal in den Kanal, mit den aktuellen Knöpfen._`, `_\`${cmd("/offen")} resend\` posts them all to the channel again, with the current buttons._`));
     return [`⏳ *${list.length} ${list.length === 1 ? L("Vorschlag wartet", "proposal waiting") : L("Vorschläge warten", "proposals waiting")} ${L("auf dich", "for you")}*`, ...lines].join("\n");
   },
 
