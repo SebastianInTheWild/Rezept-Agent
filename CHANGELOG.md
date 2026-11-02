@@ -5,6 +5,11 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, 
 ## Unveröffentlicht
 
 ### Neu
+- **Slack `/google`:** Google-Nutzung des Monats – Bilder (je Modell), ausgewertete Videos mit Tokens, geschätzte Kosten, heute und Vormonat. Mit `GOOGLE_GUTHABEN` (z. B. 10 $ aus Google AI Pro) auch das Rest-Guthaben und einmal pro Monat eine Warnung bei 80 %. Gezählt werden die eigenen Aufrufe des Agenten (`daten/rezepte/google-nutzung.json`), Preise in den Einstellungen anpassbar (`GOOGLE_PREIS_BILD`, `GEMINI_PREIS_EINGABE`, `GEMINI_PREIS_AUSGABE`).
+
+## 2026-11-02 (Neustart-Meldung, Bild-Fix)
+
+### Neu
 - **Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version (Commit) und ob es ein Update war (von … auf …). Ein Neustart nur der Slack-Brücke wird nicht gemeldet. Abschaltbar mit `NEUSTART_MELDUNG=aus` bzw. in der Weboberfläche unter Einstellungen → Slack. Das Image kennt dafür seine Version (`APP_VERSION`, `APP_BUILD` aus GitHub Actions).
 
 ### Behoben

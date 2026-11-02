@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { L, locale } from "./i18n.mjs";
+import { imagePriceFor, record, usageOf } from "./google-nutzung.mjs";
 
 const READY = {
   google: () => Boolean(process.env.GEMINI_API_KEY),
@@ -24,9 +25,8 @@ export const imageReady = () => Boolean(READY[provider()]?.());
 export const imageSetupHint = () => L("für KI-Fotos GEMINI_API_KEY (Google) oder CF_ACCOUNT_ID und CF_AI_TOKEN (Cloudflare, kostenlos) eintragen", "for AI photos set GEMINI_API_KEY (Google) or CF_ACCOUNT_ID and CF_AI_TOKEN (Cloudflare, free)");
 export const googleReady = () => READY.google();
 export const googleModel = () => (process.env.GOOGLE_BILD_MODELL || process.env.BILD_MODELL || "").trim() || "gemini-nano-banana-2.1";
-// Ungefährer Preis pro Bild in US-Dollar (Stand 11/2026, ohne Gewähr) – für die Rückfrage bei /bild-alle
-const GOOGLE_PRICE = { "gemini-nano-banana-2.1": 0.034, "gemini-2.5-flash-image": 0.039, "gemini-3-pro-image": 0.134, "gemini-3-pro-image-preview": 0.134 };
-export const googlePrice = () => GOOGLE_PRICE[googleModel()] ?? null;
+// Ungefährer Preis pro Bild (lib/google-nutzung.mjs, Stand 11/2026, ohne Gewähr) – für die Rückfrage bei /bild-alle
+export const googlePrice = () => imagePriceFor(googleModel());
 const NAMES = { google: "Google Nano Banana", cloudflare: "Cloudflare FLUX", openai: "OpenAI GPT Image" };
 let lastProvider = "";
 
@@ -130,6 +130,7 @@ async function google(prompt, model = "gemini-nano-banana-2.1") {
     const why = j.error?.message || j.promptFeedback?.blockReason || cand?.finishReason || `HTTP ${r.status}`;
     throw new Error(`Google (${model}): ${String(why).slice(0, 200)}`);
   }
+  record("bild", model, usageOf(j)); // für Slack „/google“
   return Buffer.from((img.inlineData || img.inline_data).data, "base64");
 }
 

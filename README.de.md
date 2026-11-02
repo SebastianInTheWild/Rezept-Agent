@@ -67,6 +67,7 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | `/pruefen [Anzahl]` | Qualitätsprüfung jetzt starten; mit Anzahl darf er heute so viele Rezepte zusätzlich zum Tageswert prüfen |
 | `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
 | `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
+| `/google` | Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten, heute, Vormonat und – mit `GOOGLE_GUTHABEN` – Rest-Guthaben. Bei 80 % kommt einmal eine Warnung in den Kanal. Geschätzt aus den eigenen Aufrufen (Google liefert den Kontostand nicht über den API-Schlüssel). |
 | `/hilfe` | Übersicht |
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.

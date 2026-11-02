@@ -11,6 +11,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { L } from "./i18n.mjs";
+import { record, usageOf } from "./google-nutzung.mjs";
 
 const VIDEO_URL = [
   /^https?:\/\/(www\.|m\.)?instagram\.com\/(reels?|p|tv)\/[\w-]+/i,
@@ -110,6 +111,7 @@ async function geminiVideo(file) {
     const j = await r.json().catch(() => ({}));
     const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
     if (!r.ok || !text) throw new Error(j.error?.message || j.promptFeedback?.blockReason || j.candidates?.[0]?.finishReason || `HTTP ${r.status}`);
+    record("video", videoModel(), usageOf(j)); // für Slack „/google“
     return text;
   } finally {
     if (uploaded) fetch(`${GEMINI}/v1beta/${uploaded.name}`, { method: "DELETE", headers: geminiHeaders() }).catch(() => {});
