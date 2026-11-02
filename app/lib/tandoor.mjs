@@ -2,6 +2,7 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { imageType } from "./bild.mjs";
+import { L } from "./i18n.mjs";
 
 export const base = () => (process.env.TANDOOR_URL || "https://app.tandoor.dev").replace(/\/$/, "");
 export const recipeUrl = (id) => `${base()}/recipe/${id}`;
@@ -9,8 +10,15 @@ export const recipeUrl = (id) => `${base()}/recipe/${id}`;
 // Status-Schlagwörter und Hausstil
 export const KW = { checked: "geprüft", open: "vorschlag-offen", skip: "nicht-bearbeiten" };
 export const STATUS_KW = Object.values(KW);
-export const DRAFT_PREFIX = "⏳ Entwurf: ";
-export const DEVICES_STEP = "Benötigte Küchengeräte";
+// Entwürfe tragen den Präfix in der eingestellten Sprache; erkannt werden beide
+export const DRAFT_PREFIXES = ["⏳ Entwurf: ", "⏳ Draft: "];
+export const DRAFT_PREFIX = DRAFT_PREFIXES[0];
+export const draftPrefix = () => L(DRAFT_PREFIXES[0], DRAFT_PREFIXES[1]);
+export const isDraft = (name = "") => DRAFT_PREFIXES.some((p) => name.startsWith(p));
+// Hausstil in der eingestellten Sprache; den Geräte-Schritt erkennen wir in beiden Sprachen
+export const DEVICES_STEPS = ["Benötigte Küchengeräte", "Required equipment"];
+export const devicesStep = () => L(DEVICES_STEPS[0], DEVICES_STEPS[1]);
+export const servingsText = () => L("Portionen", "servings");
 export const SERVINGS_TEXT = "Portionen";
 
 export async function api(method, path, body) {
@@ -52,7 +60,7 @@ const num = (x) => (x === null || x === undefined || x === "" ? 0 : Number(x));
 // Tandoor → einfaches Format (für Claude lesbar, ohne IDs)
 export function simplify(r) {
   const steps = [...r.steps].sort((a, b) => a.order - b.order);
-  const dev = steps.find((s) => s.name === DEVICES_STEP && !s.ingredients.length);
+  const dev = steps.find((s) => DEVICES_STEPS.includes(s.name) && !s.ingredients.length);
   return {
     id: r.id,
     name: r.name,
@@ -86,10 +94,10 @@ export function simplify(r) {
 // Einfaches Format → Tandoor-Rezept (Hausstil: Geräte-Schritt zuerst, dann „Schritt 1 … n“, Portionen)
 export function toTandoor(d, { name, keywords, privateRecipe }) {
   const steps = [];
-  if (d.devices?.length) steps.push({ name: DEVICES_STEP, instruction: d.devices.map((x) => `• ${x}`).join("\n"), time: 0, order: 0, ingredients: [] });
+  if (d.devices?.length) steps.push({ name: devicesStep(), instruction: d.devices.map((x) => `• ${x}`).join("\n"), time: 0, order: 0, ingredients: [] });
   d.steps.forEach((s, n) =>
     steps.push({
-      name: `Schritt ${n + 1}`,
+      name: `${L("Schritt", "Step")} ${n + 1}`,
       instruction: s.instruction.trim(),
       time: Math.round(num(s.time)),
       order: steps.length,
@@ -108,7 +116,7 @@ export function toTandoor(d, { name, keywords, privateRecipe }) {
     name,
     description: (d.description || "").trim(),
     servings: Math.max(1, Math.round(num(d.servings) || 1)),
-    servings_text: SERVINGS_TEXT,
+    servings_text: servingsText(),
     working_time: Math.round(num(d.working_time)),
     waiting_time: Math.round(num(d.waiting_time)),
     source_url: d.source_url || "",

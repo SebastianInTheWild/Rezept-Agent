@@ -10,6 +10,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { L } from "./i18n.mjs";
 
 const VIDEO_URL = [
   /^https?:\/\/(www\.|m\.)?instagram\.com\/(reels?|p|tv)\/[\w-]+/i,
@@ -44,7 +45,7 @@ const ytdlpArgs = () => {
 const explain = (e, url) => {
   const m = e.message;
   if (/login|log in|rate-limit|cookies|private|not available|empty media/i.test(m))
-    return `${platform(url)} lässt das Video gerade nicht abrufen (${m.slice(0, 120)}). Schick mir die Bildunterschrift als Text oder einen Screenshot.`;
+    return L(`${platform(url)} lässt das Video gerade nicht abrufen (${m.slice(0, 120)}). Schick mir die Bildunterschrift als Text oder einen Screenshot.`, `${platform(url)} won't let me fetch the video right now (${m.slice(0, 120)}). Send me the caption as text or a screenshot.`);
   return m;
 };
 

@@ -1,119 +1,130 @@
 # Rezept-Agent
 
-Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https://tandoor.dev) pflegen. Die Steuerung läuft über Slack und eine eigene Weboberfläche. Was sich geändert hat, steht im [CHANGELOG](CHANGELOG.md).
+[Deutsch](README.de.md) · **English**
 
-| Agent / Dienst | Zeit | Was er macht |
+A Docker container in which AI agents (Claude Code) look after the recipes in [Tandoor](https://tandoor.dev): they import recipes from links, HelloFresh, Instagram reels, YouTube shorts, photos and pasted text, bring them up to a house standard and give them AI photos in one consistent style. You control everything from Slack and a small web UI. Changes are listed in the [CHANGELOG](CHANGELOG.md) (German).
+
+| Agent / service | When | What it does |
 |---|---|---|
-| `rezepte` | über Slack | Legt aus Links (auch HelloFresh), Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
-| `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
-| `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
+| `rezepte` | via Slack | Creates recipe drafts in Tandoor from links (HelloFresh too), Instagram reels, YouTube shorts, photos and pasted recipe text in the recipe channel, and revises them on request. Started by the Slack bridge, not by the schedule. |
+| `rezept-qualitaet` | 12:00 | Checks recipes without a status keyword against the standard (`agents/rezept-standard.md` / `.en.md`) and sends improvements to Slack as proposals (5 per run, at most 10 open). |
+| `rezept-statistik` | 19:00 | Posts the daily numbers (total, checked, open, without picture) to the Slack channel. Not an agent – the Slack bridge does this. |
 
-Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI; fällt Google oder OpenAI aus, springt Cloudflare ein.
+Nothing is changed in Tandoor without you: every import and every improvement first becomes a draft, and a person decides in Slack with **Apply / Discard / Leave as is**.
 
-**Einheitlicher Bildstil:** Alle KI-Fotos nutzen denselben Stil – Tisch, Licht, Perspektive und Geschirr stehen in [`agents/bild-stil.md`](agents/bild-stil.md). Neue Rezepte (Links, Reels, Fotos, Text) bekommen immer ein KI-Foto in diesem Stil, auch wenn die Quelle ein eigenes Foto hat; der Agent beschreibt dafür nur, wie das Gericht aussieht (anhand des Quellfotos bzw. der Standbilder aus dem Video). Den Stil änderst du in der Datei (gilt ab dem nächsten Bild, über GitHub ohne Neustart); `/bild-alle` bringt alle vorhandenen Rezepte auf den Stil. `BILD_EINHEITLICH=aus` nimmt stattdessen wieder das Foto der Quelle.
+**Language:** German or English – in the web UI under **Settings → General → Language** (or `SPRACHE=de|en`). The language applies to new recipes and improvement proposals (the quality agent gradually translates existing recipes when it checks them), to all Slack messages and buttons, and to the web UI. English has its own standard ([`agents/rezept-standard.en.md`](agents/rezept-standard.en.md)) with English unit names (`tbsp`, `tsp`, `piece` …). The Slack commands are `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/per-day`, `/neurons`, `/help`; the German names keep working. With `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` the bridge registers the English commands in Slack by itself. Status keywords in Tandoor (`geprüft`, `vorschlag-offen`, `nicht-bearbeiten`) and the logs stay German.
 
-## Einrichten mit Portainer
+**AI photos:** Google Gemini "Nano Banana" (very realistic, paid), Cloudflare Workers AI (free) or OpenAI; if Google or OpenAI fails, Cloudflare steps in.
 
-Das Programm kommt als **fertiges Image** aus GitHub: Bei jedem Push auf `main` (und jeden Montag mit frischem Claude Code) baut GitHub Actions `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` startet dieses Image; die Daten liegen in **einem Ordner auf dem Docker-Host** (Standard `/home/sebastian/docker/rezepte`, änderbar mit `AGENTS_HOST_DIR`):
+**Uniform picture style:** all AI photos use the same style – table, light, angle and tableware are defined in [`agents/bild-stil.md`](agents/bild-stil.md). New recipes always get an AI photo in this style, even if the source has its own photo; the agent only describes what the dish looks like (based on the source photo or the video stills). Change the style in that file (applies from the next picture, via GitHub without restart); `/all-images` brings all existing recipes to the style. `BILD_EINHEITLICH=aus` uses the source photo again.
+
+## Setup with Portainer
+
+The program comes as a **ready-made image** from GitHub: on every push to `main` (and every Monday with a fresh Claude Code) GitHub Actions builds `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` runs this image; the data lives in **one folder on the Docker host** (default `/home/sebastian/docker/rezepte`, change with `AGENTS_HOST_DIR`):
 
 ```
 /home/sebastian/docker/rezepte/
-  zeitplan.conf   wann welcher Agent läuft (Änderungen gelten ohne Neustart)
-  agents/         ein Ordner je Agent (agent.json + prompt.md), alle 10 Minuten aus GitHub
-  daten/          Entwürfe, Logs, Sicherungen, Einstellungen aus der Weboberfläche
+  zeitplan.conf   when which agent runs (changes apply without restart)
+  agents/         one folder per agent (agent.json + prompt.md), synced from GitHub every 10 minutes
+  daten/          drafts, logs, backups, settings from the web UI
 ```
 
-1. **Stack anlegen:** Portainer → Stacks → Add stack → **Repository**: URL dieses Repos, Reference `refs/heads/main`, Compose path `portainer/stack-host.yml`. **GitOps updates** einschalten (Polling, z. B. 5 Minuten, mit **Re-pull image**) – dann kommen auch Änderungen an der Stack-Datei von selbst.
-2. **Image-Zugriff:** Ist das Repo privat, ist auch das Image privat. Dann in Portainer unter **Registries → Add registry → GitHub** einen GitHub-Token mit `read:packages` hinterlegen – oder das Paket unter GitHub → Packages → rezept-agent → Package settings auf „Public“ stellen.
-3. **Neues Image automatisch einspielen** – eine der beiden Möglichkeiten:
-   - **Webhook (sofort):** Im Stack in Portainer den **Webhook** einschalten, die URL kopieren und im Repo unter Settings → Secrets → Actions als `PORTAINER_WEBHOOK` speichern. Nach jedem Build lädt GitHub den Stack neu. Portainer muss dafür aus dem Internet erreichbar sein.
-   - **What's Up Docker:** Die Labels im Stack lassen WUD neue Builds von `:latest` erkennen; mit einem Docker-Trigger in WUD wird der Container automatisch erneuert.
+1. **Create the stack:** Portainer → Stacks → Add stack → **Repository**: URL of this repo, reference `refs/heads/main`, compose path `portainer/stack-host.yml`. Turn on **GitOps updates** (polling, e.g. 5 minutes, with **Re-pull image**) – then changes to the stack file arrive by themselves too.
+2. **Image access:** if the repo is private, so is the image. Then add a GitHub token with `read:packages` in Portainer under **Registries → Add registry → GitHub** – or set the package to "Public" under GitHub → Packages → rezept-agent → Package settings.
+3. **Deploy new images automatically** – one of these:
+   - **Webhook (immediately):** turn on the **webhook** of the stack in Portainer, copy the URL and save it in the repo under Settings → Secrets → Actions as `PORTAINER_WEBHOOK`. After every build GitHub reloads the stack. Portainer must be reachable from the internet.
+   - **What's Up Docker:** the labels in the stack let WUD detect new builds of `:latest`; with a Docker trigger in WUD the container is renewed automatically.
 
-Neue oder geänderte Agenten pushst du einfach nach GitHub (`agents/<name>/agent.json` + `prompt.md`, Vorlage `agents/_vorlage`): Der Container holt `agents/` alle 10 Minuten (`AGENTS_SYNC`, „aus“ = nie) und erkennt sie ohne Neustart. Änderungen direkt auf dem Host in Agenten aus dem Repo werden dabei überschrieben.
+New or changed agents are simply pushed to GitHub (`agents/<name>/agent.json` + `prompt.md`, template `agents/_vorlage`): the container fetches `agents/` every 10 minutes (`AGENTS_SYNC`, "aus" = never) and picks them up without restart. Changes made directly on the host to agents from the repo are overwritten.
 
-### Automatisch aktualisieren
+### Automatic updates
 
-Alles, was auf `main` landet, kommt von selbst auf den Server:
+Everything that lands on `main` reaches the server by itself:
 
-| Was | Wie |
+| What | How |
 | --- | --- |
-| `app/` (Programm), Claude Code | GitHub Actions baut ein neues Image; Portainer-Webhook oder WUD spielen es ein |
-| `agents/` | alle 10 Minuten aus GitHub (`AGENTS_SYNC`), ohne Neustart |
-| `slack-app-manifest.yml` | steckt im Image; die Slack-Brücke spielt Änderungen über die Manifest-API in Slack ein (`SLACK_APP_ID`, `SLACK_CONFIG_TOKEN`) und meldet das im Kanal. Kommen neue Berechtigungen dazu, muss die App einmal von Hand neu installiert werden. |
-| `portainer/stack-host.yml` | Portainer-Repository-Stack mit **GitOps updates** |
+| `app/` (program), Claude Code | GitHub Actions builds a new image; Portainer webhook or WUD deploy it |
+| `agents/` | from GitHub every 10 minutes (`AGENTS_SYNC`), without restart |
+| `slack-app-manifest.yml` | part of the image; the Slack bridge pushes changes to Slack via the manifest API (`SLACK_APP_ID`, `SLACK_CONFIG_TOKEN`) and announces it in the channel. New permissions require reinstalling the app once by hand. |
+| `portainer/stack-host.yml` | Portainer repository stack with **GitOps updates** |
 
-Alte Ordner-Variante (Programm in `app/` auf dem Host, Image `node`): Dort holt der Abgleich auch `app/` und das Manifest aus GitHub und startet danach neu (`APP_SYNC`, Standard an; wirkt nur, wenn `app/` beschreibbar ist). Mit dem Image sind `app/` und `npm/` auf dem Host überflüssig und können weg.
+Old folder variant (program in `app/` on the host, image `node`): there the sync also fetches `app/` and the manifest from GitHub and restarts afterwards (`APP_SYNC`, default on; only when `app/` is writable). With the image, `app/` and `npm/` on the host are no longer needed.
 
-### Einstellungen in der Weboberfläche
+### Web UI
 
-Unter **Einstellungen** (Reiter oben) lassen sich Zugangsdaten und Optionen eintragen: Claude, Tandoor, Slack, KI-Fotos (Anbieter, Google-Modell, Schlüssel), Bilder pro Tag, Abgleich. Sie haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in `daten/umgebung.json` (nur für den Container-Benutzer lesbar). Leeres Feld bzw. „Eintrag löschen“ = wieder den Wert aus Portainer nehmen. Änderungen gelten nach **Jetzt neu starten**. Tokens und Schlüssel lassen sich nur ändern, wenn `WEB_PASSWORT` gesetzt ist; angezeigt werden sie nur gekürzt (`••••1234`). `WEB_PASSWORT` selbst bleibt in Portainer, damit man sich nicht aussperrt.
+The web UI runs on port 8080 (`WEB_PORT`, password via `WEB_PASSWORT`).
 
-Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
+- **Schedule:** set the times, see status and last run, start agents immediately with **Start now**, send the statistics with **Send now**, and set how many recipes the quality agent checks per day (default 5, stored in `daten/rezepte/einstellungen.json`).
+- **Settings:** credentials and options – language, Claude, Tandoor, Slack, AI photos (provider, Google model, keys, style), videos, sync. They take precedence over the environment variables from Portainer and are stored in `daten/umgebung.json` (readable only by the container user). Empty field / "Delete entry" = use the value from Portainer again. Changes apply after **Restart now**. Tokens and keys can only be changed when `WEB_PASSWORT` is set and are only shown shortened (`••••1234`). `WEB_PASSWORT` itself stays in Portainer so you can't lock yourself out.
 
-Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`, `/bild-neu`, `/bild-alle` und `/pro-tag <Zahl>` nur im Rezept-Kanal):
+### Slack commands
 
-| Befehl | Was er macht |
+Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-images` and `/per-day <number>` only work in the recipe channel. German names in brackets.
+
+| Command | What it does |
 | --- | --- |
-| `/statistik` | Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen, ohne Bild |
-| `/offen` | Vorschläge, die auf eine Entscheidung warten, mit Link |
-| `/rezept <Name>` | Rezept in Tandoor suchen, mit Status |
-| `/ohne-bild [Anzahl \| Name]` | Rezepte ohne Bild, jedes als eigene Nachricht im Kanal mit Knopf **🎨 Bild erzeugen** (KI-Foto direkt in Tandoor, danach **🔄 Anderes Bild erzeugen**). Ohne Angabe 5 Stück; schon gezeigte kommen erst nach 7 Tagen wieder, mit Name wird gezielt gesucht. Ein eigenes Foto wird nie ersetzt. |
-| `/bild-neu <Name \| ID>` | Neues KI-Bild mit Google (`GOOGLE_BILD_MODELL`) für ein Rezept, auch wenn es schon ein Foto hat. Bei mehreren Treffern zeigt er die Liste mit IDs. |
-| `/bild-alle` | Alle Rezeptbilder mit Google neu erzeugen. Fragt zweimal nach (mit Anzahl und geschätzten Kosten), nur wer fragt, darf bestätigen. Läuft im Hintergrund mit Fortschritt und Knopf **⏹️ Anhalten**, nach einem Neustart geht es weiter. Nach 3 Fehlern hintereinander (z. B. Google-Kontingent) hält er an. |
-| `/pruefen [Anzahl]` | Qualitätsprüfung jetzt starten; mit Anzahl darf er heute so viele Rezepte zusätzlich zum Tageswert prüfen |
-| `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
-| `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
-| `/hilfe` | Übersicht |
+| `/stats` (`/statistik`) | Recipe statistics: total, checked, open, still to check, without picture |
+| `/open` (`/offen`) | Proposals waiting for a decision, with link |
+| `/recipe <name>` (`/rezept`) | Search a recipe in Tandoor, with status |
+| `/no-image [count \| name]` (`/ohne-bild`) | Recipes without a picture, each as its own message in the channel with a **🎨 Create picture** button (AI photo straight into Tandoor, then **🔄 Create another picture**). Default 5; recipes already shown come back after 7 days, with a name it searches specifically. Own photos are never replaced. |
+| `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |
+| `/all-images` (`/bild-alle`) | Recreate all recipe pictures with Google. Asks twice (with count and estimated cost), only the person who asked can confirm. Runs in the background with progress and a **⏹️ Pause** button, continues after a restart, pauses after 3 errors in a row (e.g. Google quota). |
+| `/check [count]` (`/pruefen`) | Start the quality check now; with a count it may check that many recipes on top of today's amount |
+| `/per-day [count]` (`/pro-tag`) | Show or change recipes per day (like in the web UI) |
+| `/neurons` (`/neuronen`) | Cloudflare neurons left today for AI photos |
+| `/help` (`/hilfe`) | Overview |
 
-Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
+With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.
 
-## Rezepte von HelloFresh
+## Recipes from HelloFresh
 
-Tandoors eigener Import kann HelloFresh-Seiten nicht lesen. Für HelloFresh-Links (alle Länderseiten, z. B. `hellofresh.de/recipes/…`) liest der Container das Rezept deshalb selbst aus den Daten der Seite: Zutaten mit Mengen je Portionszahl (der Agent nimmt 2 Portionen), Schritte mit den jeweils verwendeten Zutaten, Utensilien, Zeiten. Packungsangaben wie „1 Packung Kochsahne“ ergänzt der Agent um die übliche Menge. Blockt HelloFresh den Abruf, bittet er um einen Screenshot der Rezeptkarte oder den Text.
+Tandoor's own importer can't read HelloFresh pages. For HelloFresh links (all country sites, e.g. `hellofresh.com/recipes/…`) the container therefore reads the recipe itself from the page data: ingredients with amounts per number of servings (the agent takes 2 servings), steps with the ingredients used in each, utensils, times. Package amounts like "1 pack of cream" get the usual quantity added by the agent. If HelloFresh blocks the request, the agent asks for a screenshot of the recipe card or the text.
 
-## Rezepte aus Reels und Shorts
+## Recipes from reels and shorts
 
-Einen Link zu einem **Instagram-Reel** oder **YouTube-Short** (auch TikTok und normale YouTube-Videos bis 10 Minuten) einfach in den Rezept-Kanal schicken:
+Just send a link to an **Instagram reel** or **YouTube short** (also TikTok and regular YouTube videos up to 10 minutes) to the recipe channel:
 
-1. `yt-dlp` holt Bildunterschrift und Video, `ffmpeg` zieht Standbilder.
-2. **Gemini** sieht sich das Video an und schreibt heraus, was gesagt und eingeblendet wird – Zutaten, Mengen, Schritte (nutzt `GEMINI_API_KEY`, Modell `GEMINI_VIDEO_MODELL`, Standard `gemini-flash-latest`; unter 1 Cent pro Reel). Ohne Schlüssel gibt es nur Bildunterschrift und Standbilder.
-3. Der Agent setzt daraus das Rezept zusammen. Verweist die Bildunterschrift auf einen Blog mit dem ganzen Rezept, nimmt er bevorzugt diesen. Das Rezeptfoto ist ein KI-Foto im einheitlichen Stil; die Standbilder nutzt der Agent, um das Gericht dafür zu beschreiben.
+1. `yt-dlp` fetches the caption and the video, `ffmpeg` grabs stills.
+2. **Gemini** watches the video and writes down what is said and shown – ingredients, amounts, steps (uses `GEMINI_API_KEY`, model `GEMINI_VIDEO_MODELL`, default `gemini-flash-latest`; less than 1 cent per reel). Without a key there are only the caption and the stills.
+3. The agent builds the recipe from that. If the caption links to a blog with the full recipe, it prefers that. The recipe photo is an AI photo in the uniform style; the agent uses the stills to describe the dish for it.
 
-Instagram blockt Abrufe ohne Anmeldung manchmal. Dann antwortet der Agent im Thread und bittet um die Bildunterschrift als Text oder einen Screenshot. Wird das häufig, hilft eine Cookie-Datei eines (am besten zweiten) Instagram-Kontos: `VIDEO_COOKIES=/data/daten/cookies.txt` (Netscape-Format, z. B. mit einer Browser-Erweiterung „Get cookies.txt“ exportiert). Automatisches Abrufen ist bei Instagram nicht erlaubt; das Konto kann gesperrt werden.
+Instagram sometimes blocks requests without login. The agent then replies in the thread and asks for the caption as text or a screenshot. If that happens often, a cookie file of a (preferably second) Instagram account helps: `VIDEO_COOKIES=/data/daten/cookies.txt` (Netscape format, e.g. exported with a "Get cookies.txt" browser extension). Automated access is against Instagram's terms; the account may be blocked.
 
-**Text einfügen:** Längerer Text ohne Link (ab etwa 80 Zeichen oder 3 Zeilen), z. B. eine kopierte Bildunterschrift, wird ebenfalls als Rezept angelegt.
+**Paste text:** longer text without a link (from about 80 characters or 3 lines), e.g. a copied caption, is also turned into a recipe.
 
-## Zugangsdaten
+## Credentials
 
-Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage: `.env.example`) – oder in der Weboberfläche unter **Einstellungen** (hat Vorrang, siehe oben). Nur `WEB_PASSWORT` gehört immer nach Portainer.
+As environment variables, in Portainer under "Environment variables" (template: `.env.example`) – or in the web UI under **Settings** (takes precedence, see above). Only `WEB_PASSWORT` always belongs in Portainer.
 
-- **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
-- **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Einstellungen → API, Scope „read write“.
-- **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** Slack-App „Rezept-Helfer“ aus `slack-app-manifest.yml` anlegen. In den Kanal kommen auch Meldungen über fehlgeschlagene Läufe.
-- **GEMINI_API_KEY:** für KI-Fotos mit Google Nano Banana (optional, ca. 0,03–0,04 $ pro Bild). Schlüssel unter [aistudio.google.com](https://aistudio.google.com) → „Get API key“, Abrechnung muss aktiviert sein. Modell wählen mit `GOOGLE_BILD_MODELL`: `gemini-nano-banana-2.1` (Standard), `gemini-2.5-flash-image` (günstiger) oder `gemini-3-pro-image` (beste Qualität).
-- **SLACK_APP_ID**, **SLACK_CONFIG_TOKEN:** optional, damit Änderungen an `slack-app-manifest.yml` (z. B. neue Befehle) von selbst in Slack landen. App-ID unter api.slack.com/apps → Rezept-Helfer → Basic Information; Token unter api.slack.com/apps → ganz unten „Your App Configuration Tokens“ → Generate Token, davon den **Refresh Token** (`xoxe-1-…`). Den erneuert der Container danach selbst (`daten/slack-config-token.json`).
-- **BILD_ANBIETER:** optional `google`, `cloudflare` oder `openai`; ohne Angabe Google vor Cloudflare vor OpenAI. **BILD_PRO_TAG:** höchstens so viele KI-Fotos pro Tag (Standard 10).
-- **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional, kostenlos; mit Google als Ersatz). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
-- **OPENAI_API_KEY:** optional, für KI-Fotos mit OpenAI GPT Image (kostenpflichtig).
-- **WEB_PASSWORT:** Passwort für die Weboberfläche. Ohne Passwort lassen sich dort keine Zugangsdaten ändern.
+- **SPRACHE:** `de` (default) or `en`.
+- **CLAUDE_CODE_OAUTH_TOKEN:** run `claude setup-token` on a computer with Claude Code.
+- **TANDOOR_URL**, **TANDOOR_TOKEN:** Tandoor → Settings → API, scope "read write".
+- **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** create the Slack app from `slack-app-manifest.yml`. Failed runs are also reported in the channel.
+- **GEMINI_API_KEY:** for AI photos with Google Nano Banana and for reels/shorts (optional, about $0.03–0.04 per picture). Key at [aistudio.google.com](https://aistudio.google.com) → "Get API key", billing must be enabled. Choose the model with `GOOGLE_BILD_MODELL`: `gemini-nano-banana-2.1` (default), `gemini-2.5-flash-image` (older) or `gemini-3-pro-image` (best quality).
+- **SLACK_APP_ID**, **SLACK_CONFIG_TOKEN:** optional, so changes to `slack-app-manifest.yml` (e.g. new commands, English command names) reach Slack by themselves. App ID under api.slack.com/apps → your app → Basic Information; token under api.slack.com/apps → at the bottom "Your App Configuration Tokens" → Generate Token, take the **refresh token** (`xoxe-1-…`). The container rotates it by itself afterwards (`daten/slack-config-token.json`).
+- **BILD_ANBIETER:** optional `google`, `cloudflare` or `openai`; without it Google before Cloudflare before OpenAI. **BILD_PRO_TAG:** at most this many AI photos per day (default 10). **BILD_EINHEITLICH:** `an` (default) / `aus`.
+- **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** for AI photos (optional, free; fallback for Google). To show the free neurons after each photo and with `/neurons`, the token also needs "Account Analytics: Read".
+- **OPENAI_API_KEY:** optional, for AI photos with OpenAI GPT Image (paid).
+- **GEMINI_VIDEO_MODELL**, **VIDEO_MAX_SEKUNDEN**, **VIDEO_COOKIES:** optional, for reels and shorts (see above).
+- **WEB_PASSWORT:** password for the web UI. Without it, credentials can't be changed there.
 
-## Einrichten mit Docker Compose
+## Setup with Docker Compose
 
-Baut das Image lokal aus diesem Repo (statt es aus GitHub zu laden):
+Builds the image locally from this repo (instead of pulling it from GitHub):
 
 ```sh
-cp .env.example .env    # ausfüllen
+cp .env.example .env    # fill in
 docker compose up -d --build
 docker compose logs -f
 ```
 
-## Bedienen
+## Usage
 
 ```sh
 docker compose exec rezept-agent node /app/scheduler.mjs list
 docker compose exec rezept-agent node /app/scheduler.mjs run rezept-qualitaet
 ```
 
-## Lizenz
+## License
 
-MIT · Autor: SebastianInTheWild
+MIT · Author: SebastianInTheWild

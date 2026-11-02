@@ -5,9 +5,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIX, SERVINGS_TEXT } from "./tandoor.mjs";
+import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
+import { L, lang, locale, cmd } from "./i18n.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
 import { fetchHelloFresh, isHelloFresh } from "./hellofresh.mjs";
 
@@ -17,7 +18,14 @@ export const REZEPTE = join(DATA_DIR, "rezepte"); // gemeinsamer Ordner (= Daten
 const STORE = join(REZEPTE, "vorschlaege.json");
 const AGENT_DATA = () => process.env.AGENT_DATA || REZEPTE;
 export const DRAFT_FILE = () => join(AGENT_DATA(), "entwurf.json");
-const STANDARD = () => join(process.env.AGENTS_DIR || join(APP, "..", "agents"), "rezept-standard.md");
+// Rezept-Standard in der eingestellten Sprache (rezept-standard.en.md für Englisch, sonst die deutsche Fassung)
+const STANDARD = () => {
+  const dir = process.env.AGENTS_DIR || join(APP, "..", "agents");
+  const en = join(dir, "rezept-standard.en.md");
+  return lang() === "en" && existsSync(en) ? en : join(dir, "rezept-standard.md");
+};
+// Englische Rezepte: metrische Einheiten mit englischen Namen (legt Tandoor beim Speichern an, falls es sie noch nicht gibt)
+const EN_UNITS = ["g", "kg", "ml", "l", "tbsp", "tsp", "pinch", "piece", "clove", "bunch", "can", "pack", "jar", "slice", "sprig", "handful"];
 const REFERENCE = Number(process.env.REZEPT_VORLAGE || 149567); // Rahmwirsing
 const SETTINGS = join(REZEPTE, "einstellungen.json");
 const DRY = process.env.DRY === "1";
@@ -32,7 +40,7 @@ export function saveStore(s) {
 }
 export const loadJob = () => (process.env.REZEPT_JOB && existsSync(process.env.REZEPT_JOB) ? JSON.parse(readFileSync(process.env.REZEPT_JOB, "utf8")) : null);
 export const saveJob = (job) => process.env.REZEPT_JOB && writeFileSync(process.env.REZEPT_JOB, JSON.stringify(job, null, 1));
-const stripDraft = (n) => n.replace(DRAFT_PREFIX, "").trim();
+const stripDraft = (n) => DRAFT_PREFIXES.reduce((x, p) => x.replace(p, ""), n).trim();
 const kwNames = (r) => (r.keywords || []).map((k) => k.name ?? k.label);
 const uniq = (a) => [...new Set(a)];
 
@@ -86,8 +94,10 @@ export async function context() {
   const count = {};
   recipes.forEach((r) => kwNames(r).forEach((k) => (count[k] = (count[k] || 0) + 1)));
   return {
+    // de = alles auf Deutsch, en = everything in English (Einstellung „Sprache“ in der Weboberfläche)
+    language: lang(),
     standard: existsSync(STANDARD()) ? readFileSync(STANDARD(), "utf8") : "",
-    units: units.map((u) => u.name).sort((a, b) => a.localeCompare(b, "de")),
+    units: uniq([...units.map((u) => u.name), ...(lang() === "en" ? EN_UNITS : [])]).sort((a, b) => a.localeCompare(b, "de")),
     keywords: keywords
       .filter((k) => !STATUS_KW.includes(k.name))
       .map((k) => ({ name: k.name, recipes: count[k.name] || 0 }))
@@ -108,7 +118,7 @@ export async function pending() {
   const free = Math.max(0, maxOpen() - openQuality);
   const later = (a, b) => b && Date.parse(a) - Date.parse(b) > 120_000;
   const list = (await all("/api/recipe/"))
-    .filter((r) => !r.name.startsWith(DRAFT_PREFIX) && !busy.has(r.id))
+    .filter((r) => !isDraft(r.name) && !busy.has(r.id))
     .filter((r) => {
       const k = kwNames(r);
       if (k.includes(KW.skip) || k.includes(KW.open)) return false;
@@ -123,7 +133,7 @@ export async function pending() {
 // Statistik über alle Rezepte (ohne Entwürfe) nach Status-Schlagwort, dazu was heute entschieden wurde
 export async function stats(now = new Date()) {
   const store = loadStore();
-  const recipes = (await all("/api/recipe/")).filter((r) => !r.name.startsWith(DRAFT_PREFIX));
+  const recipes = (await all("/api/recipe/")).filter((r) => !isDraft(r.name));
   const has = (r, kw) => kwNames(r).includes(kw);
   const checked = recipes.filter((r) => has(r, KW.checked)).length;
   const open = recipes.filter((r) => has(r, KW.open)).length;
@@ -149,19 +159,21 @@ export async function stats(now = new Date()) {
 
 export function statsMessage(s, date = new Date()) {
   const pct = (n) => (s.total ? Math.round((100 * n) / s.total) : 0);
-  const when = date.toLocaleDateString("de-DE", { timeZone: process.env.TZ || "Europe/Berlin", weekday: "short", day: "2-digit", month: "2-digit" });
+  const when = date.toLocaleDateString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", weekday: "short", day: "2-digit", month: "2-digit" });
+  const days = (n) => `${n} ${n === 1 ? L("Tag", "day") : L("Tage", "days")}`;
   const lines = [
-    `📊 *Rezept-Statistik* · ${when}`,
-    `• Rezepte insgesamt: *${s.total}*`,
-    `• ✅ geprüft: *${s.checked}* (${pct(s.checked)} %)`,
-    `• ⏳ Vorschlag wartet auf dich: *${s.open}*`,
-    `• 🚫 nicht bearbeiten: ${s.skipped}`,
-    `• 📝 noch zu prüfen: *${s.todo}*` + (s.todo && s.days_left ? ` – bei ${s.batch} pro Tag noch etwa ${s.days_left} ${s.days_left === 1 ? "Tag" : "Tage"}` : s.todo && !s.batch ? " – tägliche Prüfung ist auf 0 gestellt" : ""),
+    `📊 *${L("Rezept-Statistik", "Recipe statistics")}* · ${when}`,
+    `• ${L("Rezepte insgesamt", "Recipes in total")}: *${s.total}*`,
+    `• ✅ ${L("geprüft", "checked")}: *${s.checked}* (${pct(s.checked)} %)`,
+    `• ⏳ ${L("Vorschlag wartet auf dich", "proposal waiting for you")}: *${s.open}*`,
+    `• 🚫 ${L("nicht bearbeiten", "leave as is")}: ${s.skipped}`,
+    `• 📝 ${L("noch zu prüfen", "still to check")}: *${s.todo}*` +
+      (s.todo && s.days_left ? L(` – bei ${s.batch} pro Tag noch etwa ${days(s.days_left)}`, ` – at ${s.batch} per day about ${days(s.days_left)} left`) : s.todo && !s.batch ? L(" – tägliche Prüfung ist auf 0 gestellt", " – daily check is set to 0") : ""),
   ];
-  if (s.no_image !== undefined) lines.push(`• 🖼️ ohne Bild: *${s.no_image}*` + (s.no_image ? " – `/ohne-bild` zeigt sie mit Knopf für ein KI-Foto" : ""));
+  if (s.no_image !== undefined) lines.push(`• 🖼️ ${L("ohne Bild", "without picture")}: *${s.no_image}*` + (s.no_image ? L(` – \`${cmd("/ohne-bild")}\` zeigt sie mit Knopf für ein KI-Foto`, ` – \`${cmd("/ohne-bild")}\` shows them with a button for an AI photo`) : ""));
   const t = s.today;
-  if (t.proposed || t.applied || t.rejected) lines.push(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`);
-  if (!s.todo && !s.open) lines.push("🎉 Alle Rezepte sind geprüft.");
+  if (t.proposed || t.applied || t.rejected) lines.push(L(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`, `• Today: ${t.proposed} proposed · ${t.applied} applied · ${t.rejected} discarded`));
+  if (!s.todo && !s.open) lines.push(L("🎉 Alle Rezepte sind geprüft.", "🎉 All recipes are checked."));
   return lines.join("\n");
 }
 
@@ -176,11 +188,12 @@ export async function findRecipes(q) {
   const j = await api("GET", `/api/recipe/?query=${encodeURIComponent(q)}&page_size=10`);
   const open = new Map(openProposals().filter((p) => p.original_id).map((p) => [p.original_id, p]));
   return j.results
-    .filter((r) => !r.name.startsWith(DRAFT_PREFIX))
+    .filter((r) => !isDraft(r.name))
     .map((r) => {
       const k = kwNames(r);
-      const status = k.includes(KW.checked) ? "geprüft" : k.includes(KW.skip) ? "nicht bearbeiten" : k.includes(KW.open) || open.has(r.id) ? "Vorschlag offen" : "noch nicht geprüft";
-      return { id: r.id, name: r.name, url: recipeUrl(r.id), status, proposal: open.get(r.id) || null };
+      const state = k.includes(KW.checked) ? "checked" : k.includes(KW.skip) ? "skip" : k.includes(KW.open) || open.has(r.id) ? "open" : "todo";
+      const status = { checked: L("geprüft", "checked"), skip: L("nicht bearbeiten", "leave as is"), open: L("Vorschlag offen", "proposal open"), todo: L("noch nicht geprüft", "not checked yet") }[state];
+      return { id: r.id, name: r.name, url: recipeUrl(r.id), state, status, proposal: open.get(r.id) || null };
     });
 }
 
@@ -194,7 +207,7 @@ export async function recipesWithoutImage(q = "") {
   const posted = loadStore().no_image || {};
   const term = q.trim().toLowerCase();
   const list = (await all("/api/recipe/"))
-    .filter((r) => !r.name.startsWith(DRAFT_PREFIX) && !r.image && !kwNames(r).includes(KW.open))
+    .filter((r) => !isDraft(r.name) && !r.image && !kwNames(r).includes(KW.open))
     .filter((r) => !term || r.name.toLowerCase().includes(term))
     .sort((a, b) => a.name.localeCompare(b.name, "de"))
     .map((r) => ({ id: r.id, name: r.name, url: recipeUrl(r.id), posted: posted[r.id]?.posted || null }));
@@ -205,15 +218,15 @@ export async function recipesWithoutImage(q = "") {
 const imageButton = (id, again) => ({
   type: "actions",
   block_id: `rzimg:${id}`,
-  elements: [{ type: "button", ...(again ? {} : { style: "primary" }), text: { type: "plain_text", text: again ? "🔄 Anderes Bild erzeugen" : "🎨 Bild erzeugen" }, action_id: "rz_image", value: String(id) }],
+  elements: [{ type: "button", ...(again ? {} : { style: "primary" }), text: { type: "plain_text", text: again ? L("🔄 Anderes Bild erzeugen", "🔄 Create another picture") : L("🎨 Bild erzeugen", "🎨 Create picture") }, action_id: "rz_image", value: String(id) }],
 });
 
 /** Slack-Nachricht für ein Rezept ohne Bild (bzw. nach dem Erzeugen mit Knopf für ein anderes). */
 export function noImageMessage(r, status) {
-  const blocks = [{ type: "section", text: { type: "mrkdwn", text: `🖼️ *${status ? "Bild erzeugt" : "Ohne Bild"}:* ${link(r.url, r.name)}` } }];
+  const blocks = [{ type: "section", text: { type: "mrkdwn", text: `🖼️ *${status ? L("Bild erzeugt", "Picture created") : L("Ohne Bild", "No picture")}:* ${link(r.url, r.name)}` } }];
   if (status) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: status }] });
   blocks.push(imageButton(r.id, Boolean(status)));
-  return { text: `${status ? "Bild erzeugt" : "Rezept ohne Bild"}: ${r.name}`, blocks };
+  return { text: `${status ? L("Bild erzeugt", "Picture created") : L("Rezept ohne Bild", "Recipe without picture")}: ${r.name}`, blocks };
 }
 
 /** Postet je Rezept eine eigene Nachricht in den Kanal und merkt sie sich. */
@@ -247,15 +260,18 @@ async function backupImage(r) {
  * nachdem das alte Bild gesichert ist – klappt die Sicherung nicht, bleibt das alte Bild.
  */
 export async function generateRecipeImage(id, { replace = false } = {}) {
-  if (!replace && !imageReady()) throw new Error(`Kein Bild-Anbieter eingerichtet – ${imageSetupHint}`);
-  const r = await getRecipe(id);
-  if (r.name.startsWith(DRAFT_PREFIX)) throw new Error("Das ist ein Entwurf – das Bild kommt mit dem Vorschlag");
+  const skipError = (msg) => Object.assign(new Error(msg), { skip: true }); // /bild-alle überspringt solche Rezepte
+  if (!replace && !imageReady()) throw new Error(`${L("Kein Bild-Anbieter eingerichtet", "No image provider set up")} – ${imageSetupHint()}`);
+  const r = await getRecipe(id).catch((e) => {
+    throw skipError(e.message);
+  });
+  if (isDraft(r.name)) throw skipError(L("Das ist ein Entwurf – das Bild kommt mit dem Vorschlag", "This is a draft – the picture comes with the proposal"));
   const entry = loadStore().no_image?.[id];
-  if (r.image && !entry?.generated && !replace) throw new Error("Das Rezept hat inzwischen ein eigenes Bild – das ersetze ich nicht");
+  if (r.image && !entry?.generated && !replace) throw new Error(L("Das Rezept hat inzwischen ein eigenes Bild – das ersetze ich nicht", "The recipe now has its own picture – I won't replace it"));
   let backup = null;
   if (r.image && replace && !DRY)
     backup = await backupImage(r).catch((e) => {
-      throw new Error(`Altes Bild ließ sich nicht sichern (${e.message}) – es bleibt unverändert`);
+      throw skipError(L(`Altes Bild ließ sich nicht sichern (${e.message}) – es bleibt unverändert`, `Could not back up the old picture (${e.message}) – left unchanged`));
     });
   const jpg = await generateImage(simplify(r), REZEPTE, replace ? { only: "google", noLimit: true } : {});
   if (DRY) return { ok: true, dry: true, name: r.name, url: recipeUrl(r.id) };
@@ -274,7 +290,7 @@ export async function generateRecipeImage(id, { replace = false } = {}) {
 /** Alle Rezepte (ohne Entwürfe) für /bild-alle, nach Name sortiert. */
 export const allRecipeIds = async () =>
   (await all("/api/recipe/"))
-    .filter((r) => !r.name.startsWith(DRAFT_PREFIX))
+    .filter((r) => !isDraft(r.name))
     .sort((a, b) => a.name.localeCompare(b.name, "de"))
     .map((r) => ({ id: r.id, name: r.name }));
 
@@ -283,9 +299,9 @@ export async function resolveRecipe(q) {
   q = q.trim();
   if (/^\d+$/.test(q)) {
     const r = await getRecipe(Number(q)).catch(() => null);
-    return r && !r.name.startsWith(DRAFT_PREFIX) ? { hit: { id: r.id, name: r.name, url: recipeUrl(r.id) }, hits: [] } : { hit: null, hits: [] };
+    return r && !isDraft(r.name) ? { hit: { id: r.id, name: r.name, url: recipeUrl(r.id) }, hits: [] } : { hit: null, hits: [] };
   }
-  const hits = (await search(q)).filter((r) => !r.name.startsWith(DRAFT_PREFIX));
+  const hits = (await search(q)).filter((r) => !isDraft(r.name));
   const exact = hits.filter((r) => r.name.toLowerCase() === q.toLowerCase());
   return { hit: exact.length === 1 ? exact[0] : hits.length === 1 ? hits[0] : null, hits };
 }
@@ -370,9 +386,10 @@ export function validate(d, ctx) {
   });
   const known = new Set(ctx.keywords.map((k) => k.name));
   const newKw = (d.keywords || []).filter((k) => !known.has(k) && !STATUS_KW.includes(k));
-  if (newKw.length > 2) errors.push(`Höchstens 2 neue Schlagwörter, du hast: ${newKw.join(", ")}`);
-  if (uniq(newFoods).length) warnings.push(`Neue Lebensmittel: ${uniq(newFoods).join(", ")}`);
-  if (newKw.length) warnings.push(`Neue Schlagwörter: ${newKw.join(", ")}`);
+  const maxNew = lang() === "en" ? 5 : 2;
+  if (newKw.length > maxNew) errors.push(`Höchstens ${maxNew} neue Schlagwörter, du hast: ${newKw.join(", ")}`);
+  if (uniq(newFoods).length) warnings.push(`${L("Neue Lebensmittel", "New foods")}: ${uniq(newFoods).join(", ")}`);
+  if (newKw.length) warnings.push(`${L("Neue Schlagwörter", "New keywords")}: ${newKw.join(", ")}`);
   return { errors, warnings };
 }
 
@@ -417,7 +434,7 @@ export async function propose() {
   const store = loadStore();
   const kind = job?.kind === "revise" ? "revise" : d.original_id ? "quality" : "import";
   const keywords = uniq([...d.keywords.filter((k) => !STATUS_KW.includes(k)), KW.open]);
-  const payload = toTandoor(d, { name: DRAFT_PREFIX + d.name.trim(), keywords, privateRecipe: true });
+  const payload = toTandoor(d, { name: draftPrefix() + d.name.trim(), keywords, privateRecipe: true });
   let p;
   let before = null;
 
@@ -431,12 +448,12 @@ export async function propose() {
     let orig = null;
     if (kind === "quality") {
       orig = await getRecipe(d.original_id);
-      if (orig.name.startsWith(DRAFT_PREFIX)) return { ok: false, errors: ["original_id ist selbst ein Entwurf"] };
+      if (isDraft(orig.name)) return { ok: false, errors: ["original_id ist selbst ein Entwurf"] };
       if (Object.values(store.proposals).some((x) => x.status === "open" && x.original_id === orig.id)) return { ok: false, errors: ["Für dieses Rezept gibt es schon einen offenen Vorschlag"] };
       before = simplify(orig);
     } else {
       const dup = (await search(d.name.trim())).filter((r) => r.name.toLowerCase() === d.name.trim().toLowerCase());
-      if (dup.length) warnings.push(`Gibt es schon: ${dup.map((r) => r.name).join(", ")}`);
+      if (dup.length) warnings.push(`${L("Gibt es schon", "Already exists")}: ${dup.map((r) => r.name).join(", ")}`);
     }
     if (DRY) return { ok: true, dry: true, kind, payload, warnings, diff: before && diff(before, d) };
     const draft = await api("POST", "/api/recipe/", payload);
@@ -450,13 +467,13 @@ export async function propose() {
     if (d.image_file) {
       const inbox = resolve(REZEPTE, "inbox");
       const file = resolve(d.image_file);
-      if (!file.startsWith(inbox + "/") || !existsSync(file)) warnings.push("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert");
-      else await uploadImage(draft.id, readFileSync(file), id).then(() => (hasImage = true), (e) => warnings.push(`Standbild nicht übernommen (${e.message.slice(0, 80)})`));
+      if (!file.startsWith(inbox + "/") || !existsSync(file)) warnings.push(L("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert", "image_file must be a picture from daten/rezepte/inbox – ignored"));
+      else await uploadImage(draft.id, readFileSync(file), id).then(() => (hasImage = true), (e) => warnings.push(`${L("Standbild nicht übernommen", "Still image not used")} (${e.message.slice(0, 80)})`));
     }
     const image = !hasImage && (d.image_url || orig?.image);
-    if (image) await api("PUT", `/api/recipe/${draft.id}/image/`, { image_url: image }).then(() => (hasImage = true), (e) => warnings.push(`Bild nicht übernommen (${e.message.slice(0, 80)})`));
+    if (image) await api("PUT", `/api/recipe/${draft.id}/image/`, { image_url: image }).then(() => (hasImage = true), (e) => warnings.push(`${L("Bild nicht übernommen", "Picture not used")} (${e.message.slice(0, 80)})`));
     if (!hasImage) {
-      if (!imageReady()) warnings.push(`Kein Bild – ${imageSetupHint}`);
+      if (!imageReady()) warnings.push(`${L("Kein Bild", "No picture")} – ${imageSetupHint()}`);
       else
         try {
           const jpg = await generateImage(d, REZEPTE);
@@ -464,9 +481,9 @@ export async function propose() {
           mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
           p.generated_image = join(REZEPTE, "bilder", `${id}.${imageType(jpg).ext}`);
           writeFileSync(p.generated_image, jpg);
-          d.changes = [...d.changes, `Foto mit KI erzeugt (es gab kein Bild) · ${await lastImageNote()}`];
+          d.changes = [...d.changes, `${L("Foto mit KI erzeugt", "Photo created with AI")} · ${await lastImageNote()}`];
         } catch (e) {
-          warnings.push(`Kein Bild erzeugt: ${e.message.slice(0, 120)}`);
+          warnings.push(`${L("Kein Bild erzeugt", "No picture created")}: ${e.message.slice(0, 120)}`);
         }
     }
   }
@@ -478,7 +495,7 @@ export async function propose() {
     const channel = p.slack?.channel || job?.channel || CHANNEL();
     const r = await post(channel, msg.text, msg.blocks, thread);
     p.slack = { channel, thread_ts: thread || r.ts, last_ts: r.ts };
-  } else warnings.push("Slack nicht eingerichtet – Vorschlag nur in Tandoor");
+  } else warnings.push(L("Slack nicht eingerichtet – Vorschlag nur in Tandoor", "Slack not set up – proposal only in Tandoor"));
   store.proposals[p.id] = { ...p, name: d.name.trim(), updated: new Date().toISOString() };
   saveStore(store);
   writeFileSync(path, "{}");
@@ -487,31 +504,31 @@ export async function propose() {
 }
 
 export function proposalMessage(p, d, { kind, warnings = [], dif }) {
-  const draftLink = link(recipeUrl(p.draft_id), "Entwurf ansehen");
+  const draftLink = link(recipeUrl(p.draft_id), L("Entwurf ansehen", "View draft"));
   const head = {
-    import: `📥 *Neues Rezept:* ${link(recipeUrl(p.draft_id), d.name)}${d.source_url ? `\nQuelle: ${d.source_url}` : ""}`,
-    quality: `🔍 *Verbesserungsvorschlag:* ${link(recipeUrl(p.original_id), d.name)}`,
-    revise: `✏️ *Überarbeitet:* ${link(recipeUrl(p.draft_id), d.name)}`,
+    import: `📥 *${L("Neues Rezept", "New recipe")}:* ${link(recipeUrl(p.draft_id), d.name)}${d.source_url ? `\n${L("Quelle", "Source")}: ${d.source_url}` : ""}`,
+    quality: `🔍 *${L("Verbesserungsvorschlag", "Suggested improvement")}:* ${link(recipeUrl(p.original_id), d.name)}`,
+    revise: `✏️ *${L("Überarbeitet", "Revised")}:* ${link(recipeUrl(p.draft_id), d.name)}`,
   }[kind];
   const cut = (s) => (s.length > 2900 ? s.slice(0, 2900) + " …" : s);
   const blocks = [
     { type: "section", text: { type: "mrkdwn", text: head } },
-    { type: "section", text: { type: "mrkdwn", text: cut(`*Was ich gemacht habe*\n${d.changes.map((c) => `• ${esc(c)}`).join("\n")}`) } },
+    { type: "section", text: { type: "mrkdwn", text: cut(`*${L("Was ich gemacht habe", "What I did")}*\n${d.changes.map((c) => `• ${esc(c)}`).join("\n")}`) } },
   ];
-  if (dif?.lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: cut(`*Zutaten* (Schritte ${dif.steps})\n${dif.lines.slice(0, 25).map(esc).join("\n")}${dif.lines.length > 25 ? `\n… und ${dif.lines.length - 25} weitere` : ""}`) } });
-  if (dif?.removed) warnings = [`${dif.removed} Zutat(en) entfernt – bitte prüfen`, ...warnings];
-  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: cut([...warnings.map((w) => `⚠️ ${esc(w)}`), `${draftLink} · Antworte im Thread, wenn ich etwas ändern soll.`].join("\n")) }] });
+  if (dif?.lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: cut(`*${L("Zutaten", "Ingredients")}* (${L("Schritte", "steps")} ${dif.steps})\n${dif.lines.slice(0, 25).map(esc).join("\n")}${dif.lines.length > 25 ? `\n… ${L("und", "and")} ${dif.lines.length - 25} ${L("weitere", "more")}` : ""}`) } });
+  if (dif?.removed) warnings = [L(`${dif.removed} Zutat(en) entfernt – bitte prüfen`, `${dif.removed} ingredient(s) removed – please check`), ...warnings];
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: cut([...warnings.map((w) => `⚠️ ${esc(w)}`), `${draftLink} · ${L("Antworte im Thread, wenn ich etwas ändern soll.", "Reply in the thread if you want me to change something.")}`].join("\n")) }] });
   blocks.push(actions(p));
-  return { text: `${{ import: "Neues Rezept", quality: "Vorschlag", revise: "Überarbeitet" }[kind]}: ${d.name}`, blocks };
+  return { text: `${{ import: L("Neues Rezept", "New recipe"), quality: L("Vorschlag", "Proposal"), revise: L("Überarbeitet", "Revised") }[kind]}: ${d.name}`, blocks };
 }
 
 const actions = (p) => ({
   type: "actions",
   block_id: `rz:${p.id}`,
   elements: [
-    { type: "button", style: "primary", text: { type: "plain_text", text: "✅ Übernehmen" }, action_id: "rz_apply", value: p.id },
-    { type: "button", style: "danger", text: { type: "plain_text", text: "Verwerfen" }, action_id: "rz_reject", value: p.id },
-    ...(p.kind === "quality" ? [{ type: "button", text: { type: "plain_text", text: "Nicht bearbeiten" }, action_id: "rz_skip", value: p.id }] : []),
+    { type: "button", style: "primary", text: { type: "plain_text", text: L("✅ Übernehmen", "✅ Apply") }, action_id: "rz_apply", value: p.id },
+    { type: "button", style: "danger", text: { type: "plain_text", text: L("Verwerfen", "Discard") }, action_id: "rz_reject", value: p.id },
+    ...(p.kind === "quality" ? [{ type: "button", text: { type: "plain_text", text: L("Nicht bearbeiten", "Leave as is") }, action_id: "rz_skip", value: p.id }] : []),
   ],
 });
 
@@ -520,8 +537,8 @@ const actions = (p) => ({
 function openProposal(id) {
   const store = loadStore();
   const p = store.proposals[id];
-  if (!p) throw new Error("Vorschlag unbekannt");
-  if (p.status !== "open") throw new Error(`Vorschlag ist schon erledigt (${p.status})`);
+  if (!p) throw new Error(L("Vorschlag unbekannt", "Unknown proposal"));
+  if (p.status !== "open") throw new Error(L(`Vorschlag ist schon erledigt (${p.status})`, `Proposal already decided (${p.status})`));
   return { store, p };
 }
 
@@ -529,7 +546,7 @@ function openProposal(id) {
 async function deleteDraft(p) {
   const r = await getRecipe(p.draft_id).catch(() => null);
   if (!r) return;
-  if (!r.name.startsWith(DRAFT_PREFIX) || !kwNames(r).includes(KW.open)) throw new Error(`Rezept ${p.draft_id} ist kein Entwurf – wird nicht gelöscht`);
+  if (!isDraft(r.name) || !kwNames(r).includes(KW.open)) throw new Error(L(`Rezept ${p.draft_id} ist kein Entwurf – wird nicht gelöscht`, `Recipe ${p.draft_id} is not a draft – not deleted`));
   await api("DELETE", `/api/recipe/${p.draft_id}/`);
 }
 
@@ -554,7 +571,7 @@ export async function applyProposal(id, user) {
     if (left.lines.length || after.steps.length !== d.steps.length) {
       p.status = "error";
       saveStore(store);
-      throw new Error(`Nach dem Speichern weicht das Rezept vom Entwurf ab (${left.lines.slice(0, 3).join("; ")}). Entwurf bleibt, Sicherung liegt in daten/rezepte/sicherungen.`);
+      throw new Error(L(`Nach dem Speichern weicht das Rezept vom Entwurf ab (${left.lines.slice(0, 3).join("; ")}). Entwurf bleibt, Sicherung liegt in daten/rezepte/sicherungen.`, `After saving, the recipe differs from the draft (${left.lines.slice(0, 3).join("; ")}). The draft stays, a backup is in daten/rezepte/sicherungen.`));
     }
     // Erzeugtes Foto nur übernehmen, wenn das Original noch keins hat
     if (p.generated_image && !orig.image && existsSync(p.generated_image)) await uploadImage(orig.id, readFileSync(p.generated_image), String(orig.id));

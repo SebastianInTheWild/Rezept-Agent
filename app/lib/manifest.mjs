@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MANIFEST_FILE } from "./sync.mjs";
+import { lang, COMMAND_NAMES } from "./i18n.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const TOKEN_FILE = join(DATA_DIR, "slack-config-token.json");
@@ -122,6 +123,36 @@ async function configToken() {
   throw new Error(`${last?.message || "kein Token"} – in api.slack.com/apps → „Your App Configuration Tokens“ einen neuen erzeugen und den Refresh-Token als SLACK_CONFIG_TOKEN eintragen`);
 }
 
+// Bei SPRACHE=en: englische Befehlsnamen (/stats, /recipe …) und Texte. Die deutschen Namen funktionieren in der Brücke
+// trotzdem weiter. Die Datei slack-app-manifest.yml bleibt deutsch und kann so auch von Hand eingefügt werden.
+const EN = {
+  description: "Imports recipes into Tandoor and brings them up to our standard.",
+  commands: {
+    "/neuronen": ["Cloudflare neurons left today for AI photos"],
+    "/statistik": ["Recipe statistics – total, checked, open, still to check"],
+    "/offen": ["Proposals waiting for your decision"],
+    "/rezept": ["Search a recipe in Tandoor, with status", "<name>"],
+    "/ohne-bild": ["Show recipes without a picture, with a button for an AI photo", "[count | name]"],
+    "/bild-neu": ["New AI picture from Google for one recipe", "<name | ID>"],
+    "/bild-alle": ["Recreate all recipe pictures with Google (asks first)"],
+    "/pruefen": ["Start the quality check now", "[count]"],
+    "/pro-tag": ["How many recipes are checked per day", "[count]"],
+    "/hilfe": ["What the recipe helper can do"],
+  },
+};
+function localize(m) {
+  if (lang() !== "en") return m;
+  const out = structuredClone(m);
+  if (out.display_information) out.display_information.description = EN.description;
+  for (const c of out.features?.slash_commands || []) {
+    const [description, hint] = EN.commands[c.command] || [];
+    if (description) c.description = description;
+    if (hint && c.usage_hint) c.usage_hint = hint;
+    c.command = COMMAND_NAMES[c.command] || c.command;
+  }
+  return out;
+}
+
 export const manifestSyncReady = () => Boolean(process.env.SLACK_APP_ID && (process.env.SLACK_CONFIG_TOKEN || read(TOKEN_FILE).refresh_token));
 
 /**
@@ -130,7 +161,7 @@ export const manifestSyncReady = () => Boolean(process.env.SLACK_APP_ID && (proc
  */
 export async function syncManifest() {
   if (!manifestSyncReady() || !existsSync(MANIFEST_FILE())) return null;
-  const manifest = JSON.stringify(parseYaml(readFileSync(MANIFEST_FILE(), "utf8")));
+  const manifest = JSON.stringify(localize(parseYaml(readFileSync(MANIFEST_FILE(), "utf8"))));
   const hash = createHash("sha256").update(manifest).digest("hex");
   const state = read(STATE_FILE);
   if (state.hash === hash && state.app_id === process.env.SLACK_APP_ID) return null;
