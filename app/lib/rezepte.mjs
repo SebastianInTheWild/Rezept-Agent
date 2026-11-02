@@ -798,7 +798,7 @@ const actions = (p) => ({
 export async function regenerateDraftImage(id) {
   const { store, p } = openProposal(id);
   const draft = await getRecipe(p.draft_id);
-  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true, reference: p.image_reference });
+  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true }); // ohne Vorlage aus dem Video – bewusst die normale Erzeugung
   if (DRY) return { ok: true, dry: true, name: p.name };
   await uploadImage(p.draft_id, jpg, id);
   mkdirSync(join(REZEPTE, "bilder"), { recursive: true });

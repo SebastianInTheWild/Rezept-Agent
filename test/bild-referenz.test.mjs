@@ -44,10 +44,13 @@ test("Standbild aus dem Video → als Vorlage an Google, Stil bleibt, Hinweis im
   assert.ok(p.changes.some((c) => /fertigen Gericht aus dem Video als Vorlage/.test(c)));
 });
 
-test("„🎨 Neues Bild“ nutzt dieselbe Vorlage", async () => {
+test("„🎨 Neues Bild“ erzeugt normal, ohne Vorlage", async () => {
   const p = proposal("Reel-Nudeln");
   await rez.regenerateDraftImage(p.id);
-  assert.equal(google.at(-1).contents[0].parts[0].inlineData.data, still.toString("base64"));
+  const parts = google.at(-1).contents[0].parts;
+  assert.equal(parts.length, 1);
+  assert.ok(!/still frame/.test(parts[0].text));
+  assert.equal(proposal("Reel-Nudeln").generated_info.reference, undefined);
 });
 
 test("Foto aus Slack (keine Video-Datei) → keine Vorlage, nur Text", async () => {
