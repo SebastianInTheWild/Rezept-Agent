@@ -9,6 +9,8 @@ A Docker container in which AI agents (Claude Code) look after the recipes in [T
 | `rezepte` | via Slack | Creates recipe drafts in Tandoor from links (HelloFresh too), Instagram reels, YouTube shorts, photos and pasted recipe text in the recipe channel, and revises them on request. Started by the Slack bridge, not by the schedule. |
 | `rezept-qualitaet` | 12:00 | Checks recipes without a status keyword against the standard (`agents/rezept-standard.md` / `.en.md`) and sends improvements to Slack as proposals (5 per run, at most 10 open). |
 | `rezept-statistik` | 19:00 | Posts the daily numbers (total, checked, open, without picture) to the Slack channel. Not an agent – the Slack bridge does this. |
+| `wochenplan` | via Slack (optionally e.g. Sun 17:00) | Suggests a meal plan from your recipes; one click puts it into the Tandoor meal plan and shopping list. |
+| `rezept-sicherung` | 03:30 | Backs up all recipes, deleted recipes and picture backups to a private GitHub repo. Not an agent. |
 
 Nothing is changed in Tandoor without you: every import and every improvement first becomes a draft, and a person decides in Slack with **Apply / Discard / Leave as is**.
 
@@ -55,8 +57,37 @@ Old folder variant (program in `app/` on the host, image `node`): there the sync
 The web UI runs on port 8080 (`WEB_PORT`, password via `WEB_PASSWORT`).
 
 - **Schedule:** set the times, see status and last run, start agents immediately with **Start now**, send the statistics with **Send now**, and set how many recipes the quality agent checks per day (default 5, stored in `daten/rezepte/einstellungen.json`).
-- **Backups:** all pictures backed up before `/new-image`, `/all-images` or a restore (`daten/rezepte/sicherungen`, kept 180 days), next to the recipe's current picture. **Open**, **Download**, **Restore** (puts the picture back into the recipe – the current one is backed up first, the `ki-bild` mark is removed) and **Delete**. Recipe backups (JSON before an applied improvement) can be downloaded.
+- **Backups:** all pictures backed up before `/new-image`, `/all-images` or a restore (`daten/rezepte/sicherungen`, kept 180 days), next to the recipe's current picture. **Open**, **Download**, **Restore** (puts the picture back into the recipe – the current one is backed up first, the `ki-bild` mark is removed) and **Delete**. Recipe backups (JSON before an applied improvement) can be downloaded. With the GitHub backup, recipes deleted in Tandoor and backups already cleaned up locally appear here too.
 - **Settings:** credentials and options – language, Claude, Tandoor, Slack, AI photos (provider, Google model, keys, style), videos, sync. They take precedence over the environment variables from Portainer and are stored in `daten/umgebung.json` (readable only by the container user). Empty field / "Delete entry" = use the value from Portainer again. Changes apply after **Restart now**. Tokens and keys can only be changed when `WEB_PASSWORT` is set and are only shown shortened (`••••1234`). `WEB_PASSWORT` itself stays in Portainer so you can't lock yourself out.
+
+### GitHub backup
+
+Every day (default 03:30, changeable in the schedule or via **Back up now**) the container backs up all recipes to a **private GitHub repo** – via the GitHub API, no git needed in the container:
+
+| In the repo | What |
+| --- | --- |
+| `rezepte/<id>/rezept.json`, `bild.*` | current state of every recipe with its picture; older states are in the git history |
+| `geloescht/<id>/` | recipes deleted in Tandoor, with deletion date – restore them (with picture) in one click in the web UI under **Backups**, or download the JSON |
+| `sicherungen/` | everything from `daten/rezepte/sicherungen`, kept permanently there (locally cleaned up after 180 days) |
+| `index.json` | overview |
+
+Only changes are transferred. If suddenly more than half of the recipes (or all) are missing, the sync stops instead of marking everything as deleted – e.g. when Tandoor is unreachable. Deleted recipes and errors are reported in the Slack channel.
+
+**Setup:** create a **private, empty** repo on GitHub (e.g. `recipe-backup`), then under GitHub → Settings → Developer settings → **Fine-grained tokens** create a token for this repo only with **Contents: Read and write**. Enter `BACKUP_REPO` (`owner/name`) and `BACKUP_TOKEN` in the web UI under Settings → GitHub backup and restart. Pictures take space (AI pictures about 1–2 MB each); a few hundred MB are normal for several hundred recipes.
+
+### Meal plan and what to cook
+
+- **`/meal-plan [days] [wishes]`** – the `wochenplan` agent picks from your recipes: main dishes only, varied (meat/fish/vegetarian, no main ingredient twice in a row), quick on weekdays, seasonal, well rated, nothing cooked or planned recently. Wishes take precedence. **🛒 To meal plan + shopping list** puts it into the Tandoor meal plan (meal type `WOCHENPLAN_MAHLZEIT`, default dinner; `WOCHENPLAN_PORTIONEN`, default 2) and the ingredients onto the shopping list. A reply in the thread swaps single dishes.
+- **Automatic:** set e.g. `So 17:00` for the "Meal plan" agent in the schedule – then a plan for the next 7 days arrives in the channel every Sunday.
+- **`/what-to-cook zucchini, feta`** – recipes containing these ingredients (Tandoor foods), those with all first. No Claude needed.
+
+### Nutrition
+
+New recipes and improvement proposals get **nutrition per serving** (calories, protein, fat, carbohydrates) as Tandoor **properties** – that's how Tandoor shows them in the recipe. The agent estimates them from ingredients and amounts (keyword "Nutrition estimated") or takes them from the source (e.g. HelloFresh). The Slack proposal shows them as "Per serving: …". Missing property types are created in Tandoor; other properties of a recipe are kept. Recipes that are already checked get nutrition when they are checked again.
+
+### Claude limit
+
+If an agent hits the Claude usage limit ("You've hit your limit"), it retries every 30 minutes (`CLAUDE_WIEDERHOLEN_MIN`) until it works again – for at most 24 hours. The channel gets a message, and a "✅ worked" once it's caught up. Jobs from Slack (link, photo, meal plan) are retried by the bridge the same way, with the time in the thread. The web UI shows the next try.
 
 ### Slack commands
 
@@ -74,6 +105,8 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | `/per-day [count]` (`/pro-tag`) | Show or change recipes per day (like in the web UI) |
 | `/neurons` (`/neuronen`) | Cloudflare neurons left today for AI photos |
 | `/google` | Google usage this month: pictures, videos, estimated cost, today, last month and – with `GOOGLE_GUTHABEN` – remaining credit. A warning is posted once at 80 %. Estimated from the agent's own calls (Google doesn't expose the balance via the API key). |
+| `/meal-plan [days] [wishes]` (`/wochenplan`) | Meal plan from your recipes, e.g. `/meal-plan 5 vegetarian, quick` (default 7 days from tomorrow). Buttons **🛒 To meal plan + shopping list**, **📅 Meal plan only**, **Discard**; a reply in the thread swaps dishes ("Wednesday fish please"). See [Meal plan](#meal-plan-and-what-to-cook). |
+| `/what-to-cook <ingredients>` (`/was-kochen`) | Recipes with these ingredients, e.g. `/what-to-cook zucchini, feta` – those with all ingredients first (⭐). No Claude needed, straight from Tandoor. |
 | `/help` (`/hilfe`) | Overview |
 
 With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.
@@ -127,6 +160,14 @@ docker compose logs -f
 ```sh
 docker compose exec rezept-agent node /app/scheduler.mjs list
 docker compose exec rezept-agent node /app/scheduler.mjs run rezept-qualitaet
+```
+
+## Tests
+
+Every pull request is checked in GitHub Actions (`.github/workflows/test.yml`): syntax of all program files, the tests in `test/` with fake Tandoor, Slack, Google and GitHub (no real credentials needed), and whether the Docker image builds. Locally:
+
+```sh
+node --test --test-force-exit "test/*.test.mjs"
 ```
 
 ## License

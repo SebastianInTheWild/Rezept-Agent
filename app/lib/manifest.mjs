@@ -137,6 +137,8 @@ const EN = {
     "/bild-alle": ["Recreate all recipe pictures with Google (asks first)"],
     "/pruefen": ["Start the quality check now", "[count]"],
     "/pro-tag": ["How many recipes are checked per day", "[count]"],
+    "/wochenplan": ["Suggest a meal plan from your recipes", "[days] [wishes]"],
+    "/was-kochen": ["Find recipes with these ingredients", "<ingredients>"],
     "/hilfe": ["What the recipe helper can do"],
     "/google": ["Google usage and estimated cost this month"],
   },

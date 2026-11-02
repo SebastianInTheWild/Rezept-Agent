@@ -20,6 +20,8 @@ export const COMMAND_NAMES = {
   "/bild-alle": "/all-images",
   "/pruefen": "/check",
   "/pro-tag": "/per-day",
+  "/wochenplan": "/meal-plan",
+  "/was-kochen": "/what-to-cook",
   "/neuronen": "/neurons",
   "/hilfe": "/help",
 };

@@ -12,12 +12,15 @@
 //   node tandoor.mjs propose              <AGENT_DATA>/entwurf.json prüfen, als Entwurf anlegen und in Slack zeigen (DRY=1: nur zeigen)
 //   node tandoor.mjs stats [--text] [--post] Statistik: gesamt, geprüft, offen, noch zu prüfen (--post: in den Slack-Kanal)
 //   node tandoor.mjs reply "<text>"       Antwort im Slack-Thread des Auftrags (z. B. wenn kein Rezept zu finden war)
+//   node tandoor.mjs plan-context         Wochenplan: Auftrag, Zeitraum, alle Rezepte kompakt, zuletzt Geplantes
+//   node tandoor.mjs plan-propose         <AGENT_DATA>/wochenplan.json prüfen und in Slack vorschlagen
 
 import "./lib/umgebung.mjs"; // Einstellungen aus der Weboberfläche (auch beim Aufruf von Hand)
 import { existsSync, writeFileSync } from "node:fs";
 import { getRecipe, simplify } from "./lib/tandoor.mjs";
 import { context, pending, search, fetchUrl, fetchVideo, propose, stats, statsMessage, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";
 import { post, slackReady } from "./lib/slack.mjs";
+import { planContext, proposePlan, PLAN_FILE } from "./lib/wochenplan.mjs";
 
 const out = (x) => console.log(JSON.stringify(x, null, 1));
 const [cmd, ...args] = process.argv.slice(2);
@@ -80,6 +83,16 @@ try {
       process.exitCode = r.ok ? 0 : 1;
       break;
     }
+    case "plan-context":
+      if (!existsSync(PLAN_FILE())) writeFileSync(PLAN_FILE(), "{}");
+      out(await planContext());
+      break;
+    case "plan-propose": {
+      const r = await proposePlan();
+      out(r);
+      process.exitCode = r.ok ? 0 : 1;
+      break;
+    }
     case "reply": {
       const job = loadJob();
       const text = args.join(" ").trim();
@@ -94,7 +107,7 @@ try {
       break;
     }
     default:
-      console.error("Befehle: context | job | fetch-url [url] | fetch-video [url] | search <name> | recipe <id> | pending [--count] | propose | stats [--text] [--post] | reply <text>");
+      console.error("Befehle: context | job | plan-context | plan-propose | fetch-url [url] | fetch-video [url] | search <name> | recipe <id> | pending [--count] | propose | stats [--text] [--post] | reply <text>");
       process.exitCode = 2;
   }
 } catch (e) {

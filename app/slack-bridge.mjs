@@ -14,9 +14,11 @@ import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
+import { planByThread, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
 import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
+const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
 const JOBS = join(REZEPTE, "auftraege");
 const INBOX = join(REZEPTE, "inbox");
 const log = (m) => console.log(`[${new Date().toLocaleString("de-DE")}] [slack] ${m}`);
@@ -54,7 +56,13 @@ async function onEvent(e) {
   // Antwort in einem Thread: Änderungswunsch zu einem Vorschlag
   if (e.thread_ts && e.thread_ts !== e.ts) {
     const p = proposalByThread(e.thread_ts);
-    if (!p) return;
+    if (!p) {
+      // Antwort auf einen Wochenplan: Plan überarbeiten
+      const plan = planByThread(e.thread_ts);
+      if (!plan) return;
+      if (plan.status !== "open") return post(e.channel, L("Dieser Plan ist schon erledigt. Einen neuen gibt es mit /wochenplan.", "This plan has already been decided. Get a new one with /meal-plan."), undefined, e.thread_ts);
+      return enqueue({ kind: "plan-revise", agent: PLAN_AGENT, plan: plan.id, servings: plan.servings, text: plain(text), channel: e.channel, ts: e.ts, thread_ts: e.thread_ts, user: e.user });
+    }
     if (p.status !== "open") return post(e.channel, L("Dieser Vorschlag ist schon erledigt. Für Neues schick mir einfach einen Link oder ein Foto im Kanal.", "This proposal has already been decided. For something new, just send me a link or a photo in the channel."), undefined, e.thread_ts);
     return enqueue({ kind: "revise", proposal: p.id, text: plain(text), channel: e.channel, ts: e.ts, thread_ts: e.thread_ts, user: e.user });
   }
@@ -87,11 +95,12 @@ async function work() {
     while (queue.length) {
       const { file, job } = queue.shift();
       process.env.REZEPT_JOB = file;
-      const code = await runAgent(AGENT, { by: "slack" }).catch((e) => (log(e.stack || e), -1));
+      const agent = job.agent || AGENT;
+      const code = await runAgent(agent, { by: "slack" }).catch((e) => (log(e.stack || e), -1));
       delete process.env.REZEPT_JOB;
       const done = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
       // Am Claude-Limit gescheitert: Auftrag später noch einmal (höchstens 24 Stunden lang), Hinweis im Thread
-      const last = readStatus(AGENT, "last-run.json");
+      const last = readStatus(agent, "last-run.json");
       if (!done.result && !done.replied && last?.limit) {
         const tries = (job.tries || 0) + 1;
         if (tries * retryMinutes() <= 24 * 60) {
@@ -107,11 +116,34 @@ async function work() {
       if (done.result) await react(job.channel, job.ts, "white_check_mark");
       else {
         await react(job.channel, job.ts, "x");
-        if (!done.replied) await post(job.channel, L(`Das hat leider nicht geklappt${code ? ` (Code ${code})` : ""}. Details stehen im Log unter daten/${AGENT}/logs.`, `Sorry, that didn't work${code ? ` (code ${code})` : ""}. Details are in the log under daten/${AGENT}/logs.`), undefined, job.thread_ts || job.ts);
+        if (!done.replied) await post(job.channel, L(`Das hat leider nicht geklappt${code ? ` (Code ${code})` : ""}. Details stehen im Log unter daten/${agent}/logs.`, `Sorry, that didn't work${code ? ` (code ${code})` : ""}. Details are in the log under daten/${agent}/logs.`), undefined, job.thread_ts || job.ts);
       }
     }
   } finally {
     working = false;
+  }
+}
+
+// Knöpfe an einem Wochenplan: übernehmen (mit/ohne Einkaufsliste) oder verwerfen
+async function onPlanAction(payload, a, user) {
+  const channel = payload.channel.id;
+  const { ts, text, blocks = [] } = payload.message;
+  const status = (t, keepButtons = false) => update(channel, ts, text, [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text: t }] }]);
+  await status(L("⏳ Einen Moment …", "⏳ One moment …"));
+  try {
+    if (a.action_id === "rz_plan_no") {
+      rejectPlan(a.value, user);
+      await status(L(`🗑️ Verworfen von <@${user}>.`, `🗑️ Discarded by <@${user}>.`));
+    } else {
+      const shopping = a.action_id === "rz_plan_shop";
+      const r = await applyPlan(a.value, user, { shopping });
+      const where = shopping ? L("im Essensplan und auf der Einkaufsliste", "in the meal plan and on the shopping list") : L("im Essensplan", "in the meal plan");
+      await status(L(`✅ <@${user}>: ${r.count} Gerichte ${where} (${r.meal_type}).`, `✅ <@${user}>: ${r.count} dishes ${where} (${r.meal_type}).`));
+    }
+    log(`${a.action_id} ${a.value} von ${user}`);
+  } catch (e) {
+    await status(`⚠️ ${esc(e.message)}`, loadStore().plans?.[a.value]?.status === "open");
+    log(`Fehler bei ${a.action_id} ${a.value}: ${e.message}`);
   }
 }
 
@@ -125,6 +157,7 @@ async function onAction(payload) {
   const user = payload.user?.id;
   if (a.action_id === "rz_image") return onImage(payload, a.value, user);
   if (a.action_id.startsWith("rz_all_")) return onAllAction(payload, a, user);
+  if (a.action_id.startsWith("rz_plan_")) return onPlanAction(payload, a, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus(L("⏳ Einen Moment …", "⏳ One moment …"), false));
@@ -300,6 +333,8 @@ const COMMANDS = () => [
   ["/bild-neu", L("<Name | ID>", "<name | ID>"), L("Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird)", "New AI picture from Google for one recipe (replaces the old one, which is backed up first)")],
   ["/bild-alle", "", L("Alle Rezeptbilder mit Google neu erzeugen – mit doppelter Rückfrage, läuft im Hintergrund", "Recreate all recipe pictures with Google – asks twice, runs in the background")],
   ["/pruefen", L("[Anzahl]", "[count]"), L("Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)", "Start the quality check now (with a count: that many recipes on top of today's amount)")],
+  ["/wochenplan", L("[Tage] [Wünsche]", "[days] [wishes]"), L("Essensplan aus euren Rezepten vorschlagen, z. B. `/wochenplan 5 vegetarisch, schnell` – mit einem Klick in Tandoor-Essensplan und Einkaufsliste", "Suggest a meal plan from your recipes, e.g. `/meal-plan 5 vegetarian, quick` – one click into the Tandoor meal plan and shopping list")],
+  ["/was-kochen", L("<Zutaten>", "<ingredients>"), L("Rezepte mit diesen Zutaten finden, z. B. `/was-kochen Zucchini, Feta`", "Find recipes with these ingredients, e.g. `/what-to-cook zucchini, feta`")],
   ["/pro-tag", L("[Anzahl]", "[count]"), L("Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern", "How many recipes are checked per day – show or change")],
   ["/neuronen", "", L("Heute noch freie Cloudflare-Neuronen für KI-Fotos", "Cloudflare neurons left today for AI photos")],
   ["/google", "", L("Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten und Rest-Guthaben", "Google usage this month: pictures, videos, estimated cost and remaining credit")],
@@ -413,6 +448,33 @@ const commands = {
       { type: "actions", elements: choices },
     ]);
     return L("Die Rückfrage steht im Kanal – nur du kannst sie bestätigen.", "The confirmation is in the channel – only you can confirm it.");
+  },
+
+  "/wochenplan": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    // „/wochenplan 5 vegetarisch, schnell“ → 5 Tage ab morgen, Wünsche als Text
+    const m = /^\s*(\d{1,2})\b\s*(.*)$/s.exec(c.text);
+    const days = m ? Number(m[1]) : 7;
+    if (days < 1 || days > MAX_DAYS) return L(`Bitte 1 bis ${MAX_DAYS} Tage, z. B. \`/wochenplan 5\`.`, `Please 1 to ${MAX_DAYS} days, e.g. \`/meal-plan 5\`.`);
+    const wishes = (m ? m[2] : c.text).trim();
+    const r = await post(c.channel_id, L(`🗓️ <@${c.user_id}> wünscht sich einen Plan für ${days} Tage${wishes ? ` („${esc(wishes)}“)` : ""} – ich stelle ihn zusammen …`, `🗓️ <@${c.user_id}> asked for a ${days}-day plan${wishes ? ` (“${esc(wishes)}”)` : ""} – putting it together …`));
+    enqueue({ kind: "plan", agent: PLAN_AGENT, days, text: wishes, servings: servingsDefault(), channel: c.channel_id, ts: r.ts, user: c.user_id });
+    return L("Der Plan kommt gleich im Kanal (dauert etwa eine Minute).", "The plan will appear in the channel shortly (takes about a minute).");
+  },
+
+  "/was-kochen": async (c) => {
+    const q = c.text.trim();
+    if (!q) return L("Was hast du da? Beispiel: `/was-kochen Zucchini, Feta`", "What do you have? Example: `/what-to-cook zucchini, feta`");
+    const r = await findByIngredients(q);
+    if (!r.found.length) return L(`Keine dieser Zutaten kenne ich aus euren Rezepten: ${esc(r.missing.join(", "))}.`, `None of these ingredients appear in your recipes: ${esc(r.missing.join(", "))}.`);
+    if (!r.hits.length) return L(`Kein Rezept mit ${esc(r.found.map((f) => f.name).join(", "))} gefunden.`, `No recipe with ${esc(r.found.map((f) => f.name).join(", "))} found.`);
+    const all = r.found.length;
+    const lines = r.hits.map((h) => `• ${h.matches.length === all && all > 1 ? "⭐ " : ""}${link(h.url, h.name)} · ${esc(h.matches.join(", "))}${h.working_time ? ` · ${h.working_time} min` : ""}`);
+    return [
+      L(`🍳 *${r.hits.length} Rezepte* mit ${esc(r.found.map((f) => f.name).join(", "))}`, `🍳 *${r.hits.length} recipes* with ${esc(r.found.map((f) => f.name).join(", "))}`),
+      ...lines,
+      r.missing.length ? L(`_Nicht gefunden: ${esc(r.missing.join(", "))}_`, `_Not found: ${esc(r.missing.join(", "))}_`) : "",
+    ].filter(Boolean).join("\n");
   },
 
   "/pro-tag": async (c) => {

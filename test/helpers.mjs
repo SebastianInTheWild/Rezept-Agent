@@ -126,10 +126,16 @@ export function fakeTandoor(recipes = []) {
     }
     if (path === "/api/recipe/") {
       const q = (u.searchParams.get("query") || "").toLowerCase();
-      return page([...t.recipes.values()].filter((r) => !q || r.name.toLowerCase().includes(q)));
+      // foods=<id>: nur Rezepte mit diesem Lebensmittel (wie Tandoor)
+      const food = u.searchParams.get("foods") && t.foods.find((f) => String(f.id) === u.searchParams.get("foods"))?.name;
+      const hasFood = (r) => (r.steps || []).some((s) => (s.ingredients || []).some((i) => (i.food?.name ?? i.food) === food));
+      return page([...t.recipes.values()].filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!u.searchParams.get("foods") || (food && hasFood(r)))));
     }
     if (path === "/api/unit/") return page(t.units);
-    if (path === "/api/food/") return page(t.foods);
+    if (path === "/api/food/") {
+      const q = (u.searchParams.get("query") || "").toLowerCase();
+      return page(t.foods.filter((f) => !q || f.name.toLowerCase().includes(q)));
+    }
     if (path === "/api/keyword/") return page(t.keywords);
     if (path === "/api/property-type/" && method === "POST") {
       const pt = { id: t.propertyTypes.length + 1, ...body };

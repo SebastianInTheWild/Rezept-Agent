@@ -64,7 +64,23 @@ test("/rezept sucht mit Status", async () => {
 
 test("/hilfe listet alle Befehle", async () => {
   const r = await command("/hilfe");
-  for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pro-tag", "/hilfe"]) assert.ok(r.includes(c), c);
+  for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pro-tag", "/wochenplan", "/was-kochen", "/hilfe"]) assert.ok(r.includes(c), c);
+});
+
+test("/was-kochen findet Rezepte über Tandoor-Lebensmittel", async () => {
+  tandoor.recipes.get(2).steps = [{ name: "Schritt 1", order: 0, ingredients: [{ food: { name: "Wirsing" }, order: 0 }, { food: { name: "Sahne" }, order: 1 }] }];
+  const r = await command("/was-kochen", "Wirsing, Sahne");
+  assert.match(r, /1 Rezepte\* mit Wirsing, Sahne/);
+  assert.match(r, /⭐ <.*\|Rahmwirsing>/);
+  assert.match(await command("/what-to-cook", "Einhorn"), /Keine dieser Zutaten|None of these/);
+});
+
+test("/wochenplan startet den Agenten mit Tagen und Wünschen", async () => {
+  const before = slack.posts.length;
+  const r = await command("/wochenplan", "5 vegetarisch, schnell");
+  assert.match(r, /Der Plan kommt gleich/);
+  assert.ok(await until(() => slack.posts.slice(before).some((p) => /Plan für 5 Tage \(„vegetarisch, schnell“\)/.test(p.text))));
+  assert.match(await command("/wochenplan", "40"), /1 bis 14 Tage/);
 });
 
 test("Kurze Nachricht im Kanal → Hilfe statt Auftrag", async () => {

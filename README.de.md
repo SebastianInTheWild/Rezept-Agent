@@ -9,6 +9,8 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 | `rezepte` | über Slack | Legt aus Links (auch HelloFresh), Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
+| `wochenplan` | über Slack (optional z. B. So 17:00) | Schlägt einen Essensplan aus euren Rezepten vor; mit einem Klick in Tandoor-Essensplan und Einkaufsliste. |
+| `rezept-sicherung` | 03:30 | Sichert alle Rezepte, gelöschte Rezepte und Bild-Sicherungen in ein privates GitHub-Repo. Kein Agent. |
 
 Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI; fällt Google oder OpenAI aus, springt Cloudflare ein.
 
@@ -50,7 +52,36 @@ Alte Ordner-Variante (Programm in `app/` auf dem Host, Image `node`): Dort holt 
 
 ### Sicherungen in der Weboberfläche
 
-Unter **Sicherungen** (Reiter oben) stehen alle Bilder, die vor `/bild-neu`, `/bild-alle` oder einer Wiederherstellung gesichert wurden (`daten/rezepte/sicherungen`, 180 Tage), jeweils neben dem aktuellen Bild des Rezepts. **Öffnen**, **Herunterladen**, **Wiederherstellen** (setzt das Bild wieder ins Rezept; das aktuelle wird vorher gesichert, das Merkmal `ki-bild` entfällt) und **Löschen**. Rezept-Sicherungen (JSON vor einem übernommenen Verbesserungsvorschlag) lassen sich herunterladen.
+Unter **Sicherungen** (Reiter oben) stehen alle Bilder, die vor `/bild-neu`, `/bild-alle` oder einer Wiederherstellung gesichert wurden (`daten/rezepte/sicherungen`, 180 Tage), jeweils neben dem aktuellen Bild des Rezepts. **Öffnen**, **Herunterladen**, **Wiederherstellen** (setzt das Bild wieder ins Rezept; das aktuelle wird vorher gesichert, das Merkmal `ki-bild` entfällt) und **Löschen**. Rezept-Sicherungen (JSON vor einem übernommenen Verbesserungsvorschlag) lassen sich herunterladen. Mit der GitHub-Sicherung kommen dazu die in Tandoor gelöschten Rezepte und Sicherungen, die lokal schon aufgeräumt sind.
+
+### GitHub-Sicherung
+
+Täglich (Standard 03:30, im Zeitplan änderbar oder **Jetzt sichern**) sichert der Container alle Rezepte in ein **privates GitHub-Repo** – über die GitHub-API, ohne git im Container:
+
+| Im Repo | Was |
+| --- | --- |
+| `rezepte/<id>/rezept.json`, `bild.*` | aktueller Stand jedes Rezepts mit Bild; ältere Stände stehen in der Git-Historie |
+| `geloescht/<id>/` | in Tandoor gelöschte Rezepte mit Löschdatum – in der Weboberfläche unter **Sicherungen** mit einem Klick (samt Bild) wieder anlegen oder als JSON herunterladen |
+| `sicherungen/` | alles aus `daten/rezepte/sicherungen`, dort aber dauerhaft (lokal nach 180 Tagen aufgeräumt) |
+| `index.json` | Übersicht |
+
+Übertragen wird nur, was sich geändert hat. Fehlen plötzlich mehr als die Hälfte der Rezepte (oder alle), bricht der Abgleich ab, statt alles als gelöscht zu markieren – etwa wenn Tandoor gerade nicht erreichbar ist. Gelöschte Rezepte und Fehler meldet er im Slack-Kanal.
+
+**Einrichten:** auf GitHub ein **privates, leeres** Repo anlegen (z. B. `rezepte-sicherung`), dann unter GitHub → Settings → Developer settings → **Fine-grained tokens** einen Token nur für dieses Repo mit **Contents: Read and write** erstellen. In der Weboberfläche unter Einstellungen → GitHub-Sicherung `BACKUP_REPO` (`besitzer/name`) und `BACKUP_TOKEN` eintragen, neu starten. Bilder brauchen Platz (KI-Bilder je etwa 1–2 MB); bei mehreren hundert Rezepten sind ein paar hundert MB normal.
+
+### Wochenplan und „Was koche ich?“
+
+- **`/wochenplan [Tage] [Wünsche]`** – der Agent `wochenplan` wählt aus euren Rezepten: nur Hauptgerichte, abwechslungsreich (Fleisch/Fisch/vegetarisch, keine Hauptzutat zweimal hintereinander), unter der Woche schnell, saisonal, gut bewertet, nichts kürzlich Gekochtes oder Geplantes. Wünsche haben Vorrang. Mit **🛒 In Essensplan + Einkaufsliste** landet er im Tandoor-Essensplan (Mahlzeit `WOCHENPLAN_MAHLZEIT`, Standard Abendessen; `WOCHENPLAN_PORTIONEN`, Standard 2) und die Zutaten auf der Einkaufsliste. Antwort im Thread tauscht einzelne Gerichte.
+- **Automatisch:** Im Zeitplan beim Agenten „Wochenplan“ z. B. `So 17:00` eintragen – dann kommt jeden Sonntag ein Plan für die nächsten 7 Tage in den Kanal.
+- **`/was-kochen Zucchini, Feta`** – Rezepte, die diese Zutaten enthalten (Tandoor-Lebensmittel), die mit allen zuerst. Ohne Claude.
+
+### Nährwerte
+
+Neue Rezepte und Verbesserungsvorschläge bekommen **Nährwerte pro Portion** (Kalorien, Eiweiß, Fett, Kohlenhydrate) als Tandoor-**Eigenschaften** – so zeigt Tandoor sie im Rezept an. Der Agent schätzt sie aus Zutaten und Mengen (Schlagwort „Nährwerte geschätzt“) oder übernimmt sie aus der Quelle (z. B. HelloFresh). Im Vorschlag in Slack stehen sie als „Pro Portion: …“. Fehlende Eigenschafts-Typen legt der Container in Tandoor an; andere Eigenschaften eines Rezepts bleiben erhalten. Bereits geprüfte Rezepte bekommen Nährwerte, sobald sie wieder geprüft werden.
+
+### Claude-Limit
+
+Läuft ein Agent ins Claude-Nutzungslimit („You've hit your limit“), startet er alle 30 Minuten neu (`CLAUDE_WIEDERHOLEN_MIN`), bis es wieder geht – höchstens 24 Stunden lang. Im Kanal kommt dazu eine Meldung, nach dem Nachholen ein „✅ hat geklappt“. Aufträge aus Slack (Link, Foto, Wochenplan) holt die Brücke genauso nach und schreibt die Uhrzeit in den Thread. Die Weboberfläche zeigt den nächsten Versuch.
 
 ### Einstellungen in der Weboberfläche
 
@@ -72,6 +103,8 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
 | `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
 | `/google` | Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten, heute, Vormonat und – mit `GOOGLE_GUTHABEN` – Rest-Guthaben. Bei 80 % kommt einmal eine Warnung in den Kanal. Geschätzt aus den eigenen Aufrufen (Google liefert den Kontostand nicht über den API-Schlüssel). |
+| `/wochenplan [Tage] [Wünsche]` | Essensplan aus euren Rezepten, z. B. `/wochenplan 5 vegetarisch, schnell` (Standard 7 Tage ab morgen). Knöpfe **🛒 In Essensplan + Einkaufsliste**, **📅 Nur Essensplan**, **Verwerfen**; Antwort im Thread tauscht Gerichte („Mittwoch lieber Fisch“). Siehe [Wochenplan](#wochenplan-und-was-koche-ich). |
+| `/was-kochen <Zutaten>` | Rezepte mit diesen Zutaten, z. B. `/was-kochen Zucchini, Feta` – die mit allen Zutaten zuerst (⭐). Ohne Claude, direkt aus Tandoor. |
 | `/hilfe` | Übersicht |
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
@@ -124,6 +157,14 @@ docker compose logs -f
 ```sh
 docker compose exec rezept-agent node /app/scheduler.mjs list
 docker compose exec rezept-agent node /app/scheduler.mjs run rezept-qualitaet
+```
+
+## Tests
+
+Jeder Pull Request wird in GitHub Actions geprüft (`.github/workflows/test.yml`): Syntax aller Programmdateien, die Tests in `test/` mit nachgebautem Tandoor, Slack, Google und GitHub (keine echten Zugangsdaten nötig) und ob sich das Docker-Image bauen lässt. Lokal:
+
+```sh
+node --test --test-force-exit "test/*.test.mjs"
 ```
 
 ## Lizenz

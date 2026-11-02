@@ -52,6 +52,9 @@ services:
       # an (Standard): neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen
       BILD_EINHEITLICH: ${BILD_EINHEITLICH:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
+      # Wochenplan (/wochenplan): Portionen und Mahlzeit-Typ im Tandoor-Essensplan
+      WOCHENPLAN_PORTIONEN: ${WOCHENPLAN_PORTIONEN:-}
+      WOCHENPLAN_MAHLZEIT: ${WOCHENPLAN_MAHLZEIT:-}
       # Tägliche Sicherung aller Rezepte in ein privates GitHub-Repo (Uhrzeit in zeitplan.conf: rezept-sicherung = 03:30)
       BACKUP_REPO: ${BACKUP_REPO:-}
       BACKUP_TOKEN: ${BACKUP_TOKEN:-}
