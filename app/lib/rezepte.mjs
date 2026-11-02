@@ -655,18 +655,31 @@ export async function propose() {
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
-    // Bild: einheitlicher KI-Stil (BILD_EINHEITLICH, Standard an) – neue Rezepte bekommen immer ein KI-Foto,
-    // Verbesserungsvorschläge behalten das Foto des Originals. Mit BILD_EINHEITLICH=aus: Foto der Quelle bzw. Standbild aus dem Video.
+    // Bild: einheitlicher KI-Stil (BILD_EINHEITLICH, Standard an) – neue Rezepte bekommen immer ein KI-Foto.
+    // Verbesserungsvorschläge bringen das Bild ebenfalls auf den Stil: Hat das Original schon ein KI-Bild im aktuellen
+    // Stil, wird es übernommen, sonst entsteht ein neues; das alte wird beim Übernehmen gesichert (wie bei /bild-neu).
+    // Mit BILD_EINHEITLICH=aus: Foto der Quelle bzw. Standbild aus dem Video, Verbesserungen behalten das Foto des Originals.
     const uniform = !/^(aus|nein|off|0)$/i.test((process.env.BILD_EINHEITLICH || "an").trim());
     if (uniform && kind === "import") delete d.image_file, delete d.image_url;
     let hasImage = false;
+    if (kind === "quality" && orig?.image) {
+      const ai = store.ai_images?.[orig.id];
+      const currentStyle = ai && ai.style === styleId() && (!ai.image || ai.image === String(orig.image).split("?")[0]);
+      if (!uniform || currentStyle) {
+        // Bild des Originals in den Entwurf kopieren (herunterladen und hochladen – signierte Adressen lassen sich nicht weiterreichen)
+        await fetchRecipeImage(orig)
+          .then((buf) => uploadImage(draft.id, buf, id))
+          .then(() => (hasImage = true), (e) => warnings.push(`${L("Bild des Originals nicht übernommen", "Original picture not copied")} (${e.message.slice(0, 80)})`));
+        if (!hasImage && !uniform) hasImage = true; // ohne einheitlichen Stil bleibt das Original-Bild ohnehin
+      } else p.replace_image = true; // neues KI-Bild; das alte Bild wird beim Übernehmen gesichert
+    }
     if (d.image_file) {
       const inbox = resolve(REZEPTE, "inbox");
       const file = resolve(d.image_file);
       if (!file.startsWith(inbox + "/") || !existsSync(file)) warnings.push(L("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert", "image_file must be a picture from daten/rezepte/inbox – ignored"));
       else await uploadImage(draft.id, readFileSync(file), id).then(() => (hasImage = true), (e) => warnings.push(`${L("Standbild nicht übernommen", "Still image not used")} (${e.message.slice(0, 80)})`));
     }
-    const image = !hasImage && (d.image_url || orig?.image);
+    const image = !hasImage && kind === "import" && d.image_url;
     if (image) await api("PUT", `/api/recipe/${draft.id}/image/`, { image_url: image }).then(() => (hasImage = true), (e) => warnings.push(`${L("Bild nicht übernommen", "Picture not used")} (${e.message.slice(0, 80)})`));
     if (!hasImage) {
       if (!imageReady()) warnings.push(`${L("Kein Bild", "No picture")} – ${imageSetupHint()}`);
@@ -681,7 +694,7 @@ export async function propose() {
           // Neues Rezept: der Entwurf wird später selbst zum Rezept → gleich als KI-Bild markieren.
           // Verbesserungsvorschlag: erst beim Übernehmen, wenn das Bild aufs Original kommt.
           if (kind === "import") await markAiImage(draft.id, p.generated_info, store).catch((e) => warnings.push(`ki-bild: ${e.message.slice(0, 80)}`));
-          d.changes = [...d.changes, `${L("Foto mit KI erzeugt", "Photo created with AI")} · ${await lastImageNote()}`];
+          d.changes = [...d.changes, `${p.replace_image ? L("Neues Foto mit KI im einheitlichen Stil – das alte wird beim Übernehmen gesichert", "New AI photo in the uniform style – the old one is backed up when applied") : L("Foto mit KI erzeugt", "Photo created with AI")} · ${await lastImageNote()}`];
         } catch (e) {
           warnings.push(`${L("Kein Bild erzeugt", "No picture created")}: ${e.message.slice(0, 120)}`);
         }
@@ -696,7 +709,8 @@ export async function propose() {
     const r = await post(channel, msg.text, msg.blocks, thread);
     p.slack = { channel, thread_ts: thread || r.ts, last_ts: r.ts };
   } else warnings.push(L("Slack nicht eingerichtet – Vorschlag nur in Tandoor", "Slack not set up – proposal only in Tandoor"));
-  store.proposals[p.id] = { ...p, name: d.name.trim(), updated: new Date().toISOString() };
+  // Bildbeschreibung merken – für „🎨 Neues Bild“ am Vorschlag
+  store.proposals[p.id] = { ...p, name: d.name.trim(), ...(d.image_prompt ? { image_prompt: String(d.image_prompt).slice(0, 500) } : {}), updated: new Date().toISOString() };
   saveStore(store);
   writeFileSync(path, "{}");
   if (job) saveJob({ ...job, result: p.id });
@@ -739,8 +753,35 @@ const actions = (p) => ({
     { type: "button", style: "primary", text: { type: "plain_text", text: L("✅ Übernehmen", "✅ Apply") }, action_id: "rz_apply", value: p.id },
     { type: "button", style: "danger", text: { type: "plain_text", text: L("Verwerfen", "Discard") }, action_id: "rz_reject", value: p.id },
     ...(p.kind === "quality" ? [{ type: "button", text: { type: "plain_text", text: L("Nicht bearbeiten", "Leave as is") }, action_id: "rz_skip", value: p.id }] : []),
+    { type: "button", text: { type: "plain_text", text: L("🎨 Neues Bild", "🎨 New picture") }, action_id: "rz_draft_image", value: p.id },
   ],
 });
+
+/**
+ * „🎨 Neues Bild“ am Vorschlag: KI-Bild für den Entwurf (neu) erzeugen – etwa wenn es beim Anlegen nicht geklappt hat.
+ * Bei Verbesserungsvorschlägen ersetzt es beim Übernehmen das Bild des Originals; das alte wird vorher gesichert.
+ * Ausdrücklich angefordert → zählt nicht gegen BILD_PRO_TAG.
+ */
+export async function regenerateDraftImage(id) {
+  const { store, p } = openProposal(id);
+  const draft = await getRecipe(p.draft_id);
+  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true });
+  if (DRY) return { ok: true, dry: true, name: p.name };
+  await uploadImage(p.draft_id, jpg, id);
+  mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
+  if (p.generated_image) rmSync(p.generated_image, { force: true });
+  p.generated_image = join(REZEPTE, "bilder", `${id}-${Date.now().toString(36)}.${imageType(jpg).ext}`);
+  writeFileSync(p.generated_image, jpg);
+  p.generated_info = lastImageInfo();
+  let replacesOld = false;
+  if (p.kind === "import") await markAiImage(p.draft_id, p.generated_info, store);
+  else {
+    p.replace_image = true;
+    replacesOld = Boolean((await getRecipe(p.original_id).catch(() => null))?.image);
+  }
+  saveStore(store);
+  return { ok: true, name: p.name, url: recipeUrl(p.draft_id), info: await lastImageNote(), replacesOld };
+}
 
 // ---------- Entscheidungen (Knöpfe) ----------
 
@@ -765,6 +806,7 @@ export async function applyProposal(id, user) {
   const draft = await getRecipe(p.draft_id);
   const keywords = uniq([...kwNames(draft).filter((k) => !STATUS_KW.includes(k)), KW.checked]).map((name) => ({ name }));
   let target;
+  let note = ""; // Hinweis für Slack (z. B. „altes Bild gesichert“)
   if (p.kind === "import") {
     const r = await api("PATCH", `/api/recipe/${p.draft_id}/`, { name: stripDraft(draft.name), private: false, keywords });
     target = p.draft_id;
@@ -785,11 +827,22 @@ export async function applyProposal(id, user) {
       saveStore(store);
       throw new Error(L(`Nach dem Speichern weicht das Rezept vom Entwurf ab (${left.lines.slice(0, 3).join("; ")}). Entwurf bleibt, Sicherung liegt in daten/rezepte/sicherungen.`, `After saving, the recipe differs from the draft (${left.lines.slice(0, 3).join("; ")}). The draft stays, a backup is in daten/rezepte/sicherungen.`));
     }
-    // Erzeugtes Foto nur übernehmen, wenn das Original noch keins hat – dann auch als KI-Bild markieren
+    // Erzeugtes Foto aufs Original – hat es schon eins, wird das vorher gesichert (wie bei /bild-neu). Klappt die
+    // Sicherung nicht, bleibt das alte Bild (Rezept wird trotzdem übernommen, Hinweis in Slack).
     let updated = after.updated_at;
-    if (p.generated_image && !orig.image && existsSync(p.generated_image)) {
-      await uploadImage(orig.id, readFileSync(p.generated_image), String(orig.id));
-      updated = await markAiImage(orig.id, p.generated_info || { provider: "?", model: "?", style: "?" }, store);
+    if (p.generated_image && existsSync(p.generated_image) && (!orig.image || p.replace_image)) {
+      let backup = null;
+      let ok = true;
+      if (orig.image)
+        backup = await backupImage(orig).catch((e) => {
+          ok = false;
+          note = L(`Altes Bild ließ sich nicht sichern (${e.message}) – es bleibt`, `Could not back up the old picture (${e.message}) – it stays`);
+        });
+      if (ok) {
+        await uploadImage(orig.id, readFileSync(p.generated_image), String(orig.id));
+        updated = await markAiImage(orig.id, p.generated_info || { provider: "?", model: "?", style: "?" }, store);
+        if (backup) note = L("neues KI-Bild, altes Bild gesichert", "new AI picture, old picture backed up");
+      }
     }
     await deleteDraft(p);
     target = orig.id;
@@ -798,7 +851,7 @@ export async function applyProposal(id, user) {
   dropImage(p);
   Object.assign(p, { status: "applied", decided_by: user, decided: new Date().toISOString(), recipe_id: target });
   saveStore(store);
-  return { ok: true, url: recipeUrl(target), name: p.name };
+  return { ok: true, url: recipeUrl(target), name: p.name, note };
 }
 
 export async function rejectProposal(id, user, { skip = false } = {}) {

@@ -101,6 +101,21 @@ test("Knopf „Übernehmen“: Entwurf wird zum Rezept mit Schlagwort geprüft",
   assert.ok(await until(() => slack.updates.some((u) => JSON.stringify(u.blocks).includes("schon erledigt"))));
 });
 
+test("Knopf „🎨 Neues Bild“: Rückmeldung am Vorschlag, die übrigen Knöpfe bleiben", async () => {
+  const store = JSON.parse((await import("node:fs")).readFileSync(join(data, "rezepte", "vorschlaege.json"), "utf8"));
+  tandoor.recipes.set(51, { id: 51, name: "⏳ Entwurf: Curry-Hack-Nudeln", keywords: [{ name: "vorschlag-offen" }], steps: [] });
+  store.proposals.p2 = { id: "p2", kind: "quality", draft_id: 51, original_id: 2, name: "Curry-Hack-Nudeln", status: "open" };
+  writeFileSync(join(data, "rezepte", "vorschlaege.json"), JSON.stringify(store));
+  const buttons = { type: "actions", elements: [{ action_id: "rz_apply" }, { action_id: "rz_draft_image" }] };
+  const before = slack.updates.length;
+  socket.send({ type: "interactive", payload: { type: "block_actions", user: { id: "U2" }, channel: { id: "C1" }, message: { ts: "8.0", text: "Vorschlag", blocks: [{ type: "section" }, buttons] }, actions: [{ action_id: "rz_draft_image", value: "p2" }] } });
+  // Ohne Bild-Anbieter im Test: Fehlermeldung statt Bild – entscheidend ist, dass die Knöpfe stehen bleiben
+  assert.ok(await until(() => slack.updates.length >= before + 2));
+  const last = slack.updates.at(-1);
+  assert.ok(last.blocks.some((b) => b.type === "actions"), "Knöpfe bleiben");
+  assert.equal(last.blocks.filter((b) => b.block_id === "rzimgstatus").length, 1, "genau eine Statuszeile");
+});
+
 test("Knöpfe aus fremden Kanälen werden ignoriert", async () => {
   const before = slack.updates.length;
   socket.send({ type: "interactive", payload: { type: "block_actions", user: { id: "U3" }, channel: { id: "C-fremd" }, message: { ts: "1.0", text: "x", blocks: [] }, actions: [{ action_id: "rz_apply", value: "p1" }] } });

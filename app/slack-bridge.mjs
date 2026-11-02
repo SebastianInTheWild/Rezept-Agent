@@ -15,7 +15,7 @@ import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./l
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { planByThread, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
@@ -147,6 +147,28 @@ async function onPlanAction(payload, a, user) {
   }
 }
 
+// Knopf „🎨 Neues Bild“ an einem Vorschlag: KI-Bild für den Entwurf (neu) erzeugen; die Knöpfe bleiben
+async function onDraftImage(payload, id, user) {
+  const channel = payload.channel.id;
+  const { ts, text, blocks = [] } = payload.message;
+  const STATUS = "rzimgstatus";
+  const status = (t) => update(channel, ts, text, [...blocks.filter((b) => b.block_id !== STATUS && b.type !== "actions"), { type: "context", block_id: STATUS, elements: [{ type: "mrkdwn", text: t }] }, ...blocks.filter((b) => b.type === "actions")]);
+  if (imageBusy.has(`p:${id}`)) return;
+  imageBusy.add(`p:${id}`);
+  try {
+    await status(L(`⏳ <@${user}>: Bild wird erzeugt …`, `⏳ <@${user}>: creating picture …`));
+    const r = await regenerateDraftImage(id);
+    const extra = r.replacesOld ? L(" Beim Übernehmen ersetzt es das Bild des Rezepts – das alte wird vorher gesichert.", " When applied it replaces the recipe's picture – the old one is backed up first.") : "";
+    await status(L(`🎨 Neues KI-Bild von <@${user}> im ${link(r.url, "Entwurf")} · ${r.info}.${extra}`, `🎨 New AI picture by <@${user}> in the ${link(r.url, "draft")} · ${r.info}.${extra}`));
+    log(`rz_draft_image ${id} von ${user}`);
+  } catch (e) {
+    await status(`⚠️ ${esc(e.message)}`);
+    log(`Fehler bei rz_draft_image ${id}: ${e.message}`);
+  } finally {
+    imageBusy.delete(`p:${id}`);
+  }
+}
+
 // Knöpfe an einem Vorschlag
 async function onAction(payload) {
   if (payload.type !== "block_actions") return;
@@ -158,6 +180,7 @@ async function onAction(payload) {
   if (a.action_id === "rz_image") return onImage(payload, a.value, user);
   if (a.action_id.startsWith("rz_all_")) return onAllAction(payload, a, user);
   if (a.action_id.startsWith("rz_plan_")) return onPlanAction(payload, a, user);
+  if (a.action_id === "rz_draft_image") return onDraftImage(payload, a.value, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus(L("⏳ Einen Moment …", "⏳ One moment …"), false));
@@ -165,7 +188,7 @@ async function onAction(payload) {
     let text;
     if (a.action_id === "rz_apply") {
       const r = await applyProposal(a.value, user);
-      text = L(`✅ Übernommen von <@${user}> → ${link(r.url, r.name)}`, `✅ Applied by <@${user}> → ${link(r.url, r.name)}`);
+      text = L(`✅ Übernommen von <@${user}> → ${link(r.url, r.name)}`, `✅ Applied by <@${user}> → ${link(r.url, r.name)}`) + (r.note ? ` · ${esc(r.note)}` : "");
     } else {
       const skip = a.action_id === "rz_skip";
       await rejectProposal(a.value, user, { skip });
