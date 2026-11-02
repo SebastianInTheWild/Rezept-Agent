@@ -4,6 +4,11 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, 
 
 ## Unveröffentlicht
 
+### Behoben
+- **`/bild-neu` und `/bild-alle`:** Das Sichern des alten Bildes scheiterte mit HTTP 400, wenn Tandoor die Bilder über signierte S3-Adressen ausliefert (z. B. app.tandoor.dev) – S3 lehnt den zusätzlich mitgeschickten Tandoor-Token ab. Das Bild wird jetzt zuerst ohne Token geladen, der Token nur bei 401/403 mitgeschickt.
+
+## 2026-11-02 (Sprache)
+
 ### Neu
 - **Deutsch oder Englisch:** neue Einstellung „Sprache“ (Weboberfläche → Einstellungen → Allgemein, oder `SPRACHE=de|en`). Gilt für neue Rezepte und Verbesserungsvorschläge (vorhandene Rezepte übersetzt der Qualitäts-Agent nach und nach), alle Slack-Nachrichten und Knöpfe und die Weboberfläche. Englischer Rezept-Standard in `agents/rezept-standard.en.md` mit englischen Einheiten; Geräte-Schritt, „Schritt n“, Portionen und Entwurfs-Präfix in der gewählten Sprache.
 - **Englische Slack-Befehle:** `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/per-day`, `/neurons`, `/help` – die deutschen Namen funktionieren weiter. Mit `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` trägt die Brücke bei Englisch die englischen Befehle und Beschreibungen selbst in Slack ein.
