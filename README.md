@@ -24,10 +24,10 @@ Nothing is changed in Tandoor without you: every import and every improvement fi
 
 ## Setup with Portainer
 
-The program comes as a **ready-made image** from GitHub: on every push to `main` (and every Monday with a fresh Claude Code) GitHub Actions builds `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` runs this image; the data lives in **one folder on the Docker host** (default `/home/sebastian/docker/rezepte`, change with `AGENTS_HOST_DIR`):
+The program comes as a **ready-made image** from GitHub: on every push to `main` (and every Monday with a fresh Claude Code) GitHub Actions builds `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` runs this image; the data lives in **one folder on the Docker host** (`AGENTS_HOST_DIR`, default `./`; in Portainer enter an absolute path, see [Credentials](#credentials)):
 
 ```
-/home/sebastian/docker/rezepte/
+AGENTS_HOST_DIR/
   zeitplan.conf   when which agent runs (changes apply without restart)
   agents/         one folder per agent (agent.json + prompt.md), synced from GitHub every 10 minutes
   daten/          drafts, logs, backups, settings from the web UI
@@ -68,8 +68,8 @@ Every day (default 03:30, changeable in the schedule or via **Back up now**) the
 
 | In the repo | What |
 | --- | --- |
-| `rezepte/<id>/rezept.json`, `bild.*` | current state of every recipe with its picture; older states are in the git history |
-| `geloescht/<id>/` | recipes deleted in Tandoor, with deletion date – restore them (with picture) in one click in the web UI under **Backups**, or download the JSON |
+| `rezepte/<id> - <name>/rezept.json`, `bild.*` | current state of every recipe with its picture, e.g. `rezepte/12 - Lasagne/`; older states are in the git history. If the name changes, the folder is renamed |
+| `geloescht/<id> - <name>/` | recipes deleted in Tandoor, with deletion date – restore them (with picture) in one click in the web UI under **Backups**, or download the JSON |
 | `sicherungen/` | everything from `daten/rezepte/sicherungen`, kept permanently there (locally cleaned up after 180 days) |
 | `index.json` | overview |
 
@@ -133,7 +133,14 @@ Instagram sometimes blocks requests without login. The agent then replies in the
 
 ## Credentials
 
-As environment variables, in Portainer under "Environment variables" (template: `.env.example`) – or in the web UI under **Settings** (takes precedence, see above). Only `WEB_PASSWORT` always belongs in Portainer.
+Portainer's "Environment variables" (or `.env`) only hold what has to be fixed before the start (template: `.env.example`):
+
+- **AGENTS_HOST_DIR:** folder on the Docker host for schedule, agents and data. Default `./`. In Portainer always enter an absolute path, e.g. `/home/user/docker/rezepte`, because `./` there points into Portainer's own stack folder.
+- **TZ:** time zone, default `Europe/Berlin`.
+- **WEB_PASSWORT**, **WEB_ZUGANGSDATEN_OHNE_PASSWORT:** see below. You need one of them to enter the credentials in the web UI.
+- optional **PUID**/**PGID** (user in the container, default 1000), **WEB_DOMAIN**, **IMAGE_TAG**.
+
+Everything else goes into the web UI under **Settings** (stored in `daten/umgebung.json`, applies after the restart):
 
 - **SPRACHE:** `de` (default) or `en`.
 - **CLAUDE_CODE_OAUTH_TOKEN:** run `claude setup-token` on a computer with Claude Code.
@@ -145,6 +152,10 @@ As environment variables, in Portainer under "Environment variables" (template: 
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** for AI photos (optional, free; fallback for Google). To show the free neurons after each photo and with `/neurons`, the token also needs "Account Analytics: Read".
 - **OPENAI_API_KEY:** optional, for AI photos with OpenAI GPT Image (paid).
 - **GEMINI_VIDEO_MODELL**, **VIDEO_MAX_SEKUNDEN**, **VIDEO_COOKIES:** optional, for reels and shorts (see above).
+- Also: Claude API key instead of the token, wait time after the Claude limit, meal plan, GitHub backup and the GitHub sync (repo, branch, `app/`).
+
+Only in Portainer or `.env`:
+
 - **WEB_PASSWORT:** password for the web UI (HTTP login). Empty = no login. Without a password, credentials can't be changed there – unless **WEB_ZUGANGSDATEN_OHNE_PASSWORT=an** is set: then it works without login too. Only set it if the page is protected otherwise, e.g. reachable only from your home network via an **Access List** in Nginx Proxy Manager (`192.168.0.0/16`). The switch can deliberately only be set in Portainer/`.env`, not in the web UI; the web UI then shows a notice.
 
 ## Setup with Docker Compose

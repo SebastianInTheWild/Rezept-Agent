@@ -246,7 +246,7 @@ async function backupsApi(req, res, url) {
   };
   const download = (name, buf, type) => {
     const headers = { "Content-Type": type, "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" };
-    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${name}"`;
+    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${name.replace(/[^\x20-\x7e]|"/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`;
     res.writeHead(200, headers);
     res.end(buf);
   };
@@ -282,7 +282,7 @@ async function backupsApi(req, res, url) {
     const entry = gh?.deleted.find((d) => String(d.id) === gone[1]);
     if (!entry) return send(res, 404, { error: L("Nicht gefunden", "Not found") });
     try {
-      if (gone[2] === "rezept") return download(`rezept-${gone[1]}.json`, await readRepoFile(`geloescht/${gone[1]}/rezept.json`), MIME.json);
+      if (gone[2] === "rezept") return download(`${entry.dir.split("/").pop()}.json`, await readRepoFile(`${entry.dir}/rezept.json`), MIME.json);
       if (!entry.image) return send(res, 404, { error: L("Kein Bild", "No picture") });
       return download(entry.image.split("/").pop(), await readRepoFile(entry.image), MIME[entry.image.split(".").pop()] || "application/octet-stream");
     } catch (e) {

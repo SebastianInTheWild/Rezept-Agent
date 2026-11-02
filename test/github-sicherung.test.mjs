@@ -38,12 +38,12 @@ test("Erster Lauf: leeres Repo anlegen, alle Rezepte mit Bild, Sicherungen spieg
   assert.match(lines.at(-1), /^\[sicherung\] fertig nach \d+ s: \d+ Dateien in test\/sicherung .*Commit [0-9a-f]{7}$/);
   const files = github.files();
   assert.ok(files.has("README.md") && files.has("index.json"));
-  for (const id of [1, 2, 3, 4]) assert.ok(files.has(`rezepte/${id}/rezept.json`), `Rezept ${id}`);
-  assert.ok(!files.has("rezepte/50/rezept.json"), "Entwürfe werden nicht gesichert");
-  assert.ok(files.has("rezepte/1/bild.png"));
+  for (const dir of ["1 - Flammkuchen", "2 - Rahmwirsing", "3 - Gulasch", "4 - Pfannkuchen"]) assert.ok(files.has(`rezepte/${dir}/rezept.json`), dir);
+  assert.ok(![...files.keys()].some((p) => p.startsWith("rezepte/50")), "Entwürfe werden nicht gesichert");
+  assert.ok(files.has("rezepte/1 - Flammkuchen/bild.png"));
   assert.ok(files.has("sicherungen/1-bild-2026-10-30T08-00-00-000Z.png"));
   // Signierte Bildadressen ohne Signatur, damit nicht jeden Tag eine Änderung entsteht
-  assert.doesNotMatch(files.get("rezepte/1/rezept.json").toString(), /X-Amz-Signature/);
+  assert.doesNotMatch(files.get("rezepte/1 - Flammkuchen/rezept.json").toString(), /X-Amz-Signature/);
   assert.equal(r.checked, 4);
   assert.equal(github.commitsMade.length, 1);
 });
@@ -63,7 +63,31 @@ test("Geändertes Rezept: nur dieses wird neu übertragen", async () => {
   Object.assign(tandoor.recipes.get(2), { servings: 6, updated_at: "2026-11-02T10:00:00Z" });
   const r = await gs.syncBackup();
   assert.equal(r.checked, 1);
-  assert.match(github.files().get("rezepte/2/rezept.json").toString(), /"servings": 6/);
+  assert.match(github.files().get("rezepte/2 - Rahmwirsing/rezept.json").toString(), /"servings": 6/);
+});
+
+test("Ordnername folgt dem Rezeptnamen; alte Ordner <id>/ werden umbenannt, ohne neu hochzuladen", async () => {
+  assert.equal(gs.folderName(7, "Käse: Spätzle / \"Omas\" Art?"), "7 - Käse Spätzle Omas Art");
+  assert.equal(gs.folderName(8, "  "), "8");
+  Object.assign(tandoor.recipes.get(3), { name: "Rindergulasch", updated_at: "2026-11-02T11:00:00Z" });
+  await gs.syncBackup();
+  let files = github.files();
+  assert.ok(files.has("rezepte/3 - Rindergulasch/rezept.json"));
+  assert.ok(![...files.keys()].some((p) => p.startsWith("rezepte/3 - Gulasch/")), "alter Ordner weg");
+  // Altes Format aus einer früheren Version: rezepte/4/ → rezepte/4 - Pfannkuchen/
+  const sha = (b) => globalThis.__blobSha(b);
+  const old = files.get("rezepte/4 - Pfannkuchen/rezept.json");
+  const tree = [...github.trees.get(github.commits.get(github.ref).tree)].filter(([p]) => !p.startsWith("rezepte/4 - ")).concat([["rezepte/4/rezept.json", sha(old)]]);
+  const t = "talt";
+  github.trees.set(t, tree);
+  github.commits.set("calt", { tree: t, parents: [github.ref], message: "alt" });
+  github.ref = "calt";
+  const blobs = github.blobPosts;
+  const r = await gs.syncBackup();
+  files = github.files();
+  assert.ok(files.has("rezepte/4 - Pfannkuchen/rezept.json") && !files.has("rezepte/4/rezept.json"));
+  assert.ok(github.blobPosts - blobs <= 1, "Rezept nur verschoben, höchstens die Übersicht neu hochgeladen");
+  assert.equal(r.unchanged, 4);
 });
 
 test("Gelöschtes Rezept wandert nach geloescht/ und ist wiederherstellbar", async () => {
@@ -73,13 +97,13 @@ test("Gelöschtes Rezept wandert nach geloescht/ und ist wiederherstellbar", asy
   assert.ok(lines.some((l) => l.includes("in Tandoor gelöscht: „Flammkuchen“ (#1)")));
   assert.deepEqual(r.deleted, [{ id: 1, name: "Flammkuchen" }]);
   const files = github.files();
-  assert.ok(!files.has("rezepte/1/rezept.json"));
-  assert.ok(files.has("geloescht/1/rezept.json") && files.has("geloescht/1/bild.png") && files.has("geloescht/1/geloescht.json"));
+  assert.ok(![...files.keys()].some((p) => p.startsWith("rezepte/1 - ")));
+  assert.ok(files.has("geloescht/1 - Flammkuchen/rezept.json") && files.has("geloescht/1 - Flammkuchen/bild.png") && files.has("geloescht/1 - Flammkuchen/geloescht.json"));
   assert.deepEqual(JSON.parse(files.get("index.json")).deleted, [1]);
 
   const ov = await gs.repoOverview();
   assert.equal(ov.deleted[0].name, "Flammkuchen");
-  assert.equal(ov.deleted[0].image, "geloescht/1/bild.png");
+  assert.equal(ov.deleted[0].image, "geloescht/1 - Flammkuchen/bild.png");
 
   const back = await gs.restoreDeleted(1);
   const created = tandoor.recipes.get(back.id);
@@ -87,7 +111,7 @@ test("Gelöschtes Rezept wandert nach geloescht/ und ist wiederherstellbar", asy
   assert.equal(created.steps[0].ingredients[0].food.name, "Wirsing");
   assert.ok(created.keywords.some((k) => k.name === "Einfach"));
   assert.ok(tandoor.images.has(back.id), "Bild wieder hochgeladen");
-  assert.ok(![...github.files().keys()].some((p) => p.startsWith("geloescht/1/")), "aus geloescht/ entfernt");
+  assert.ok(![...github.files().keys()].some((p) => p.startsWith("geloescht/1")), "aus geloescht/ entfernt");
 });
 
 test("Schutz: fehlt mehr als die Hälfte der Rezepte, wird nichts als gelöscht markiert", async () => {
@@ -96,7 +120,7 @@ test("Schutz: fehlt mehr als die Hälfte der Rezepte, wird nichts als gelöscht 
   const lines = [];
   await assert.rejects(gs.syncBackup({ log: (m) => lines.push(m) }), /zur Sicherheit abgebrochen/);
   assert.match(lines.at(-1), /^\[sicherung\] fehlgeschlagen: .*zur Sicherheit abgebrochen/);
-  assert.ok(github.files().has("rezepte/2/rezept.json"));
+  assert.ok(github.files().has("rezepte/2 - Rahmwirsing/rezept.json"));
   assert.equal(gs.backupStatus().result, "fehler");
   for (const [k, v] of saved) tandoor.recipes.set(k, v);
 });

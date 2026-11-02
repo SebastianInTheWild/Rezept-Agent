@@ -22,10 +22,10 @@ Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (
 
 ## Einrichten mit Portainer
 
-Das Programm kommt als **fertiges Image** aus GitHub: Bei jedem Push auf `main` (und jeden Montag mit frischem Claude Code) baut GitHub Actions `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` startet dieses Image; die Daten liegen in **einem Ordner auf dem Docker-Host** (Standard `/home/sebastian/docker/rezepte`, änderbar mit `AGENTS_HOST_DIR`):
+Das Programm kommt als **fertiges Image** aus GitHub: Bei jedem Push auf `main` (und jeden Montag mit frischem Claude Code) baut GitHub Actions `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` startet dieses Image; die Daten liegen in **einem Ordner auf dem Docker-Host** (`AGENTS_HOST_DIR`, Standard `./`; in Portainer einen absoluten Pfad eintragen, siehe [Zugangsdaten](#zugangsdaten)):
 
 ```
-/home/sebastian/docker/rezepte/
+AGENTS_HOST_DIR/
   zeitplan.conf   wann welcher Agent läuft (Änderungen gelten ohne Neustart)
   agents/         ein Ordner je Agent (agent.json + prompt.md), alle 10 Minuten aus GitHub
   daten/          Entwürfe, Logs, Sicherungen, Einstellungen aus der Weboberfläche
@@ -62,8 +62,8 @@ Täglich (Standard 03:30, im Zeitplan änderbar oder **Jetzt sichern**) sichert 
 
 | Im Repo | Was |
 | --- | --- |
-| `rezepte/<id>/rezept.json`, `bild.*` | aktueller Stand jedes Rezepts mit Bild; ältere Stände stehen in der Git-Historie |
-| `geloescht/<id>/` | in Tandoor gelöschte Rezepte mit Löschdatum – in der Weboberfläche unter **Sicherungen** mit einem Klick (samt Bild) wieder anlegen oder als JSON herunterladen |
+| `rezepte/<id> - <Name>/rezept.json`, `bild.*` | aktueller Stand jedes Rezepts mit Bild, z. B. `rezepte/12 - Lasagne/`; ältere Stände stehen in der Git-Historie. Ändert sich der Name, zieht der Ordner mit |
+| `geloescht/<id> - <Name>/` | in Tandoor gelöschte Rezepte mit Löschdatum – in der Weboberfläche unter **Sicherungen** mit einem Klick (samt Bild) wieder anlegen oder als JSON herunterladen |
 | `sicherungen/` | alles aus `daten/rezepte/sicherungen`, dort aber dauerhaft (lokal nach 180 Tagen aufgeräumt) |
 | `index.json` | Übersicht |
 
@@ -131,7 +131,14 @@ Instagram blockt Abrufe ohne Anmeldung manchmal. Dann antwortet der Agent im Thr
 
 ## Zugangsdaten
 
-Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage: `.env.example`) – oder in der Weboberfläche unter **Einstellungen** (hat Vorrang, siehe oben). Nur `WEB_PASSWORT` gehört immer nach Portainer.
+In Portainer unter „Environment variables“ (bzw. in `.env`) stehen nur noch die Werte, die vor dem Start feststehen müssen (Vorlage: `.env.example`):
+
+- **AGENTS_HOST_DIR:** Ordner auf dem Docker-Host für Zeitplan, Agenten und Daten. Standard `./`. In Portainer immer einen absoluten Pfad eintragen, z. B. `/home/benutzer/docker/rezepte`, weil `./` dort in Portainers eigenen Stack-Ordner zeigt.
+- **TZ:** Zeitzone, Standard `Europe/Berlin`.
+- **WEB_PASSWORT**, **WEB_ZUGANGSDATEN_OHNE_PASSWORT:** siehe unten. Eins von beiden braucht es, damit du die Zugangsdaten in der Weboberfläche eintragen kannst.
+- optional **PUID**/**PGID** (Benutzer im Container, Standard 1000), **WEB_DOMAIN**, **IMAGE_TAG**.
+
+Alles andere trägst du in der Weboberfläche unter **Einstellungen** ein (gespeichert in `daten/umgebung.json`, gilt nach dem Neustart). Das sind:
 
 - **SPRACHE:** `de` (Standard) oder `en`.
 - **CLAUDE_CODE_OAUTH_TOKEN:** auf einem Rechner mit Claude Code `claude setup-token` ausführen.
@@ -142,6 +149,10 @@ Als Umgebungsvariablen, in Portainer unter „Environment variables“ (Vorlage:
 - **BILD_ANBIETER:** optional `google`, `cloudflare` oder `openai`; ohne Angabe Google vor Cloudflare vor OpenAI. **BILD_PRO_TAG:** höchstens so viele KI-Fotos pro Tag; leer = unbegrenzt (ausdrücklich angeforderte wie /bild-neu, /bild-alle oder 🎨 Neues Bild zählen nie).
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** für KI-Fotos (optional, kostenlos; mit Google als Ersatz). Damit nach jedem Foto und mit `/neuronen` in Slack die freien Neuronen angezeigt werden, braucht der Token zusätzlich die Berechtigung „Account Analytics: Read“.
 - **OPENAI_API_KEY:** optional, für KI-Fotos mit OpenAI GPT Image (kostenpflichtig).
+- Außerdem: Claude-API-Schlüssel statt Token, Wartezeit nach dem Claude-Limit, Video-Einstellungen samt Cookie-Datei für Instagram, Wochenplan, GitHub-Sicherung und der Abgleich mit GitHub (Repo, Branch, `app/`).
+
+Nur in Portainer bzw. `.env`:
+
 - **WEB_PASSWORT:** Passwort für die Weboberfläche (HTTP-Anmeldung). Leer = kein Login. Ohne Passwort lassen sich dort keine Zugangsdaten ändern – außer mit **WEB_ZUGANGSDATEN_OHNE_PASSWORT=an**: dann geht es auch ohne Login. Das nur setzen, wenn die Seite anders geschützt ist, z. B. im Nginx Proxy Manager per **Access List** nur aus dem Heimnetz (`192.168.0.0/16`) erreichbar. Der Schalter lässt sich bewusst nur in Portainer/`.env` setzen, nicht in der Weboberfläche; dort erscheint dann ein Hinweis.
 
 ## Einrichten mit Docker Compose

@@ -3,9 +3,10 @@
 // (Fine-grained Token, nur dieses Repo, „Contents: Read and write“), BACKUP_BRANCH (Standard main).
 //
 // Aufbau im Repo:
-//   rezepte/<id>/rezept.json      aktueller Stand aus Tandoor (Verlauf = Git-Historie)
-//   rezepte/<id>/bild.<ext>       aktuelles Rezeptbild
-//   geloescht/<id>/…              in Tandoor gelöschte Rezepte (wie oben, plus geloescht.json mit Datum)
+//   rezepte/<id> - <Name>/rezept.json   aktueller Stand aus Tandoor (Verlauf = Git-Historie)
+//   rezepte/<id> - <Name>/bild.<ext>    aktuelles Rezeptbild
+//   geloescht/<id> - <Name>/…           in Tandoor gelöschte Rezepte (wie oben, plus geloescht.json mit Datum)
+//   Ändert sich der Name, wird der Ordner umbenannt (ältere Ordner „rezepte/<id>/“ ebenso).
 //   sicherungen/<datei>           alles aus daten/rezepte/sicherungen (bleibt hier dauerhaft)
 //   index.json                    Übersicht: id, Name, Stand, Pfad – für die Weboberfläche
 //
@@ -127,12 +128,34 @@ async function recipeImage(r) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+// Ordnername „<id> - <Rezeptname>“ – zum Finden und Wiederherstellen. Zeichen, die in Pfaden stören, fallen weg.
+export function folderName(id, name = "") {
+  const clean = String(name)
+    .replace(/[\u0000-\u001f\u007f/\\:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80)
+    .replace(/[\s.]+$/, "");
+  return clean ? `${id} - ${clean}` : String(id);
+}
+// Ordner eines Rezepts unter rezepte/ bzw. geloescht/ – erkennt „<id> - <Name>“ und das alte Format „<id>“
+const DIR_RE = (top) => new RegExp(`^${top}/(\\d+)(?: - [^/]*)?(?=/)`);
+const idOfPath = (top, p) => DIR_RE(top).exec(p)?.[1];
+const dirsByIdOf = (files, top) => {
+  const m = new Map();
+  for (const p of files.keys()) {
+    const x = DIR_RE(top).exec(p);
+    if (x && !m.has(x[1])) m.set(x[1], x[0]);
+  }
+  return m;
+};
+
 const README = `# Rezept-Sicherung
 
 Automatisch angelegt vom Rezept-Agent (Tandoor). Bitte nicht von Hand ändern – der tägliche Abgleich überschreibt Änderungen.
 
-- \`rezepte/<id>/rezept.json\`, \`bild.*\` – aktueller Stand jedes Rezepts (ältere Stände in der Git-Historie)
-- \`geloescht/<id>/\` – in Tandoor gelöschte Rezepte, wiederherstellbar in der Weboberfläche unter „Sicherungen“
+- \`rezepte/<id> - <Name>/rezept.json\`, \`bild.*\` – aktueller Stand jedes Rezepts (ältere Stände in der Git-Historie)
+- \`geloescht/<id> - <Name>/\` – in Tandoor gelöschte Rezepte, wiederherstellbar in der Weboberfläche unter „Sicherungen“
 - \`sicherungen/\` – Bilder vor dem Ersetzen und Rezepte vor übernommenen Verbesserungen
 - \`index.json\` – Übersicht
 `;
@@ -157,7 +180,8 @@ export async function syncBackup({ force = false, log = console.log, by = "" } =
   try {
     const h = await head();
     const list = (await all("/api/recipe/")).filter((r) => !isDraft(r.name));
-    const inRepo = new Set([...h.files.keys()].map((p) => /^rezepte\/(\d+)\//.exec(p)?.[1]).filter(Boolean));
+    const dirs = dirsByIdOf(h.files, "rezepte");
+    const inRepo = new Set(dirs.keys());
     const now = new Set(list.map((r) => String(r.id)));
     const missing = [...inRepo].filter((id) => !now.has(id));
     // Schutz: Tandoor nicht erreichbar oder leer zurückgegeben → nichts als gelöscht markieren
@@ -165,52 +189,70 @@ export async function syncBackup({ force = false, log = console.log, by = "" } =
       throw new Error(L(`${missing.length} von ${inRepo.size} Rezepten fehlen in Tandoor – zur Sicherheit abgebrochen. Ist Tandoor erreichbar?`, `${missing.length} of ${inRepo.size} recipes are missing in Tandoor – stopped for safety. Is Tandoor reachable?`));
 
     say(`${list.length} Rezepte in Tandoor, ${inRepo.size} in der Sicherung`);
-    const changes = [];
+    // Änderungen je Pfad (ein Pfad nur einmal im Commit); put = Datei setzen, drop = Datei entfernen
+    const next = new Map();
+    const put = (path, change) => next.set(path, { path, ...change });
+    const drop = (path) => (h.files.has(path) ? next.set(path, { path, delete: true }) : next.delete(path));
     const known = (state.recipes ||= {});
-    const todo = list.filter((o) => force || !h.files.has(`rezepte/${o.id}/rezept.json`) || known[String(o.id)] !== o.updated_at).length;
+    let renamed = 0;
+    const todo = list.filter((o) => force || !dirs.has(String(o.id)) || known[String(o.id)] !== o.updated_at).length;
     if (todo) say(`${todo} Rezepte neu oder geändert – werden geholt`);
     let updated = 0;
     let unchanged = 0;
     for (const o of list) {
       const id = String(o.id);
-      const dir = `rezepte/${id}`;
-      const hasJson = h.files.has(`${dir}/rezept.json`);
+      const dir = `rezepte/${folderName(id, o.name)}`;
+      const cur = dirs.get(id);
+      // Ordner heißt anders (Name geändert oder altes Format) → Dateien verschieben, ohne sie neu hochzuladen
+      const inDir = new Map();
+      if (cur) {
+        for (const [p, sha] of h.files)
+          if (p.startsWith(`${cur}/`)) {
+            const np = dir + p.slice(cur.length);
+            inDir.set(np, sha);
+            if (np !== p) put(np, { sha }), drop(p);
+          }
+        if (cur !== dir) renamed++;
+      }
+      const hasJson = inDir.has(`${dir}/rezept.json`);
       if (!force && hasJson && known[id] === o.updated_at) {
         unchanged++;
         continue;
       }
       const r = await getRecipe(o.id);
       const jsonBuf = recipeJson(r);
-      if (h.files.get(`${dir}/rezept.json`) !== blobSha(jsonBuf)) changes.push({ path: `${dir}/rezept.json`, content: jsonBuf });
+      if (inDir.get(`${dir}/rezept.json`) !== blobSha(jsonBuf)) put(`${dir}/rezept.json`, { content: jsonBuf });
       // Bild: nur hochladen, wenn es sich geändert hat; alte Bilddateien mit anderer Endung entfernen
       const img = await recipeImage(r).catch((e) => (say(`Bild von „${r.name}“ nicht geholt: ${e.message}`), undefined));
-      const oldImages = [...h.files.keys()].filter((p) => p.startsWith(`${dir}/bild.`));
+      const oldImages = [...inDir.keys()].filter((p) => p.startsWith(`${dir}/bild.`));
       if (img) {
         const path = `${dir}/bild.${imageType(img).ext}`;
-        if (h.files.get(path) !== blobSha(img)) changes.push({ path, content: img });
-        for (const p of oldImages) if (p !== path) changes.push({ path: p, delete: true });
-      } else if (img === null) for (const p of oldImages) changes.push({ path: p, delete: true }); // Bild in Tandoor entfernt
+        if (inDir.get(path) !== blobSha(img)) put(path, { content: img });
+        for (const p of oldImages) if (p !== path) drop(p);
+      } else if (img === null) for (const p of oldImages) drop(p); // Bild in Tandoor entfernt
       known[id] = o.updated_at;
       updated++;
       if (updated % 25 === 0 && updated < todo) say(`geholt: ${updated}/${todo}`);
     }
 
-    // Gelöschte Rezepte nach geloescht/<id>/ verschieben (gleiche Inhalte, kein erneutes Hochladen)
+    // Gelöschte Rezepte nach geloescht/<id> - <Name>/ verschieben (gleiche Inhalte, kein erneutes Hochladen)
     const deleted = [];
     for (const id of missing) {
-      const files = [...h.files].filter(([p]) => p.startsWith(`rezepte/${id}/`));
+      const cur = dirs.get(id);
+      const files = [...h.files].filter(([p]) => p.startsWith(`${cur}/`));
       let name = `#${id}`;
       try {
-        name = JSON.parse(await readRepoFile(`rezepte/${id}/rezept.json`)).name || name;
+        name = JSON.parse(await readRepoFile(`${cur}/rezept.json`)).name || name;
       } catch {}
+      const dir = `geloescht/${folderName(id, name.startsWith("#") ? "" : name)}`;
       for (const [p, sha] of files) {
-        changes.push({ path: p.replace(/^rezepte\//, "geloescht/"), sha });
-        changes.push({ path: p, delete: true });
+        put(dir + p.slice(cur.length), { sha });
+        drop(p);
       }
-      changes.push({ path: `geloescht/${id}/geloescht.json`, content: Buffer.from(JSON.stringify({ id: Number(id), name, deleted: started }, null, 1) + "\n") });
+      put(`${dir}/geloescht.json`, { content: Buffer.from(JSON.stringify({ id: Number(id), name, deleted: started }, null, 1) + "\n") });
       delete known[id];
       deleted.push({ id: Number(id), name });
-      say(`in Tandoor gelöscht: „${name}“ (#${id}) → geloescht/${id}`);
+      say(`in Tandoor gelöscht: „${name}“ (#${id}) → ${dir}`);
     }
 
     // Bild- und Rezept-Sicherungen spiegeln (nur neue Dateien)
@@ -218,22 +260,24 @@ export async function syncBackup({ force = false, log = console.log, by = "" } =
     const local = existsSync(LOCAL_BACKUPS()) ? readdirSync(LOCAL_BACKUPS()).filter((f) => BACKUP_FILE.test(f)) : [];
     for (const f of local) {
       if (h.files.has(`sicherungen/${f}`)) continue;
-      changes.push({ path: `sicherungen/${f}`, content: readFileSync(join(LOCAL_BACKUPS(), f)) });
+      put(`sicherungen/${f}`, { content: readFileSync(join(LOCAL_BACKUPS(), f)) });
       mirrored++;
     }
 
     // Übersicht für die Weboberfläche
-    const deletedIndex = [...h.files.keys()].filter((p) => /^geloescht\/\d+\/geloescht\.json$/.test(p)).map((p) => Number(p.split("/")[1]));
+    const deletedIndex = [...h.files.keys()].filter((p) => /\/geloescht\.json$/.test(p)).map((p) => Number(idOfPath("geloescht", p))).filter(Boolean);
     const index = {
       updated: started,
-      recipes: list.map((r) => ({ id: r.id, name: r.name, updated_at: r.updated_at })).sort((a, b) => a.name.localeCompare(b.name, "de")),
+      recipes: list.map((r) => ({ id: r.id, name: r.name, updated_at: r.updated_at, path: `rezepte/${folderName(r.id, r.name)}` })).sort((a, b) => a.name.localeCompare(b.name, "de")),
       deleted: [...new Set([...deletedIndex.filter((id) => !now.has(String(id))), ...deleted.map((d) => d.id)])],
     };
     const indexBuf = Buffer.from(JSON.stringify(index, null, 1) + "\n");
-    if (changes.length && h.files.get("index.json") !== blobSha(indexBuf)) changes.push({ path: "index.json", content: indexBuf });
-    if (!h.files.has("README.md")) changes.push({ path: "README.md", content: Buffer.from(README) });
+    if (next.size && h.files.get("index.json") !== blobSha(indexBuf)) put("index.json", { content: indexBuf });
+    if (!h.files.has("README.md") || (next.size && h.files.get("README.md") !== blobSha(Buffer.from(README)))) put("README.md", { content: Buffer.from(README) });
+    const changes = [...next.values()];
 
-    const message = [`Sicherung ${started.slice(0, 10)}: ${updated} geprüft`, deleted.length ? `${deleted.length} gelöscht (${deleted.map((d) => d.name).join(", ")})` : "", mirrored ? `${mirrored} Sicherungen` : ""].filter(Boolean).join(", ");
+    if (renamed) say(`${renamed} Ordner umbenannt (<id> - <Name>)`);
+    const message = [`Sicherung ${started.slice(0, 10)}: ${updated} geprüft`, renamed ? `${renamed} umbenannt` : "", deleted.length ? `${deleted.length} gelöscht (${deleted.map((d) => d.name).join(", ")})` : "", mirrored ? `${mirrored} Sicherungen` : ""].filter(Boolean).join(", ");
     if (mirrored) say(`${mirrored} neue Bild-/Rezept-Sicherungen`);
     const sha = await commit(h, changes, message, say);
     const result = { at: started, result: "ok", files: changes.length, checked: updated, unchanged, deleted, mirrored, commit: sha };
@@ -315,13 +359,13 @@ export async function repoOverview() {
   const h = await head();
   const deleted = [];
   for (const p of h.files.keys()) {
-    const m = /^geloescht\/(\d+)\/geloescht\.json$/.exec(p);
+    const m = /^(geloescht\/(\d+)(?: - [^/]*)?)\/geloescht\.json$/.exec(p);
     if (!m) continue;
-    let info = { id: Number(m[1]), name: `#${m[1]}`, deleted: null };
+    let info = { id: Number(m[2]), name: `#${m[2]}`, deleted: null };
     try {
       info = { ...info, ...JSON.parse(await readRepoFile(p)) };
     } catch {}
-    deleted.push({ ...info, image: [...h.files.keys()].find((f) => f.startsWith(`geloescht/${m[1]}/bild.`)) || null });
+    deleted.push({ ...info, dir: m[1], image: [...h.files.keys()].find((f) => f.startsWith(`${m[1]}/bild.`)) || null });
   }
   const backups = [...h.files.keys()].filter((p) => p.startsWith("sicherungen/")).map((p) => p.slice("sicherungen/".length)).filter((f) => BACKUP_FILE.test(f));
   return { repo: repoUrl(), deleted: deleted.sort((a, b) => String(b.deleted).localeCompare(String(a.deleted))), backups };
@@ -345,8 +389,8 @@ export async function fetchBackupFromRepo(file) {
 export async function restoreDeleted(id) {
   if (!/^\d+$/.test(String(id))) throw new Error(L("Unbekanntes Rezept", "Unknown recipe"));
   const h = await head();
-  const dir = `geloescht/${id}`;
-  if (!h.files.has(`${dir}/rezept.json`)) throw new Error(L("Dieses Rezept liegt nicht unter „gelöscht“", "This recipe is not among the deleted ones"));
+  const dir = dirsByIdOf(h.files, "geloescht").get(String(id));
+  if (!dir || !h.files.has(`${dir}/rezept.json`)) throw new Error(L("Dieses Rezept liegt nicht unter „gelöscht“", "This recipe is not among the deleted ones"));
   const saved = JSON.parse(await readRepoFile(`${dir}/rezept.json`));
   const d = simplify(saved);
   const keywords = d.keywords.filter((k) => !SYSTEM_KW.includes(k) || k === "geprüft");
@@ -355,7 +399,7 @@ export async function restoreDeleted(id) {
   const created = await tandoorApi("POST", "/api/recipe/", payload);
   const imgPath = [...h.files.keys()].find((p) => p.startsWith(`${dir}/bild.`));
   if (imgPath) await uploadImage(created.id, await readRepoFile(imgPath), `${created.id}`).catch(() => {});
-  // Aus geloescht/ entfernen; der nächste Abgleich legt es unter rezepte/<neue id>/ ab
+  // Aus geloescht/ entfernen; der nächste Abgleich legt es unter rezepte/<neue id> - <Name>/ ab
   const changes = [...h.files.keys()].filter((p) => p.startsWith(`${dir}/`)).map((path) => ({ path, delete: true }));
   await commit(h, changes, `Wiederhergestellt: ${saved.name} (alt ${id} → neu ${created.id})`);
   return { ok: true, id: created.id, name: saved.name, url: recipeUrl(created.id) };
