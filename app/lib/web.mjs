@@ -246,7 +246,7 @@ async function backupsApi(req, res, url) {
   };
   const download = (name, buf, type) => {
     const headers = { "Content-Type": type, "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" };
-    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${name}"`;
+    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${name.replace(/[^\x20-\x7e]|"/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`;
     res.writeHead(200, headers);
     res.end(buf);
   };
@@ -282,7 +282,7 @@ async function backupsApi(req, res, url) {
     const entry = gh?.deleted.find((d) => String(d.id) === gone[1]);
     if (!entry) return send(res, 404, { error: L("Nicht gefunden", "Not found") });
     try {
-      if (gone[2] === "rezept") return download(`rezept-${gone[1]}.json`, await readRepoFile(`geloescht/${gone[1]}/rezept.json`), MIME.json);
+      if (gone[2] === "rezept") return download(`${entry.dir.split("/").pop()}.json`, await readRepoFile(`${entry.dir}/rezept.json`), MIME.json);
       if (!entry.image) return send(res, 404, { error: L("Kein Bild", "No picture") });
       return download(entry.image.split("/").pop(), await readRepoFile(entry.image), MIME[entry.image.split(".").pop()] || "application/octet-stream");
     } catch (e) {
@@ -335,6 +335,11 @@ async function backupsApi(req, res, url) {
   }
   return send(res, 404, { error: L("Nicht gefunden", "Not found") });
 }
+// Zugangsdaten in der Oberfläche ändern: mit Passwort immer; ohne Passwort nur, wenn in Portainer/.env
+// WEB_ZUGANGSDATEN_OHNE_PASSWORT=an gesetzt ist (z. B. weil der Nginx Proxy Manager die Seite aufs Heimnetz beschränkt).
+// Der Schalter ist absichtlich NICHT in der Oberfläche einstellbar – sonst könnte jeder die Sperre selbst aufheben.
+const secretsEditable = () => Boolean(process.env.WEB_PASSWORT) || /^(an|on|ja|yes|1|true)$/i.test((process.env.WEB_ZUGANGSDATEN_OHNE_PASSWORT || "").trim());
+
 function authorized(req) {
   const pw = process.env.WEB_PASSWORT;
   if (!pw) return true;
@@ -410,7 +415,9 @@ export function startWeb() {
       const envState = () => ({
         lang: lang(),
         fields: envOverview(),
-        secrets: Boolean(process.env.WEB_PASSWORT),
+        secrets: secretsEditable(),
+        // Ohne Passwort, aber per Schalter freigegeben: Hinweis in der Oberfläche
+        open: secretsEditable() && !process.env.WEB_PASSWORT,
         running: agentIds().filter((id) => readStatus(id, "status.json")?.running),
       });
       if (req.method === "GET" && url.pathname === "/api/umgebung") return send(res, 200, envState());
@@ -418,7 +425,7 @@ export function startWeb() {
         if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const { values = {} } = await body(req);
         const secret = Object.keys(values).filter((k) => FIELDS.find((f) => f.key === k)?.secret);
-        if (secret.length && !process.env.WEB_PASSWORT) return send(res, 403, { error: L("Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen)", "Credentials can only be changed when this page has a password (set WEB_PASSWORT in Portainer)") });
+        if (secret.length && !secretsEditable()) return send(res, 403, { error: L("Zugangsdaten lassen sich nur ändern, wenn die Oberfläche ein Passwort hat (WEB_PASSWORT in Portainer setzen) oder WEB_ZUGANGSDATEN_OHNE_PASSWORT=an in Portainer gesetzt ist", "Credentials can only be changed when this page has a password (set WEB_PASSWORT in Portainer) or WEB_ZUGANGSDATEN_OHNE_PASSWORT=an is set in Portainer") });
         try {
           setEnvValues(values);
         } catch (e) {
@@ -448,7 +455,7 @@ export function startWeb() {
           if (!backupReady()) return send(res, 400, { error: L("GitHub-Sicherung ist nicht eingerichtet", "GitHub backup is not set up") });
           if (backupRunning()) return send(res, 409, { error: L("Die Sicherung läuft gerade schon", "The backup is already running") });
           // Kann einige Minuten dauern – im Hintergrund, die Oberfläche zeigt „läuft“
-          syncBackup().catch((e) => console.error(`[sicherung] ${e.message}`));
+          syncBackup({ by: "von Hand" }).catch((e) => e.logged || console.error(`[sicherung] ${e.message}`));
           console.log("[web] GitHub-Sicherung von Hand gestartet");
           return send(res, 200, overview());
         }

@@ -4,7 +4,7 @@
 //   cloudflare – Cloudflare Workers AI (kostenlos im Free-Plan, 10.000 Neurons/Tag) mit FLUX.2 Klein 9B, Ersatz FLUX.1 Schnell; CF_ACCOUNT_ID, CF_AI_TOKEN
 //   openai     – OpenAI GPT Image (kostenpflichtig), OPENAI_API_KEY
 // Schlägt der gewählte Anbieter fehl, springt Cloudflare ein (wenn eingerichtet).
-// Optional: BILD_MODELL (Modell des gewählten Anbieters), BILD_QUALITAET (OpenAI), BILD_PRO_TAG (Standard 10).
+// Optional: BILD_MODELL (Modell des gewählten Anbieters), BILD_QUALITAET (OpenAI), BILD_PRO_TAG (leer = unbegrenzt).
 // Verbrauchte Neuronen: Cloudflare-GraphQL (Token braucht zusätzlich „Account Analytics: Read“), Kontingent CF_NEURONEN_PRO_TAG (Standard 10.000).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
@@ -158,7 +158,9 @@ export async function generateImage(d, dir, { only, noLimit = false } = {}) {
   const main = only || provider();
   if (!READY[main]?.()) throw new Error(only === "google" ? L("GEMINI_API_KEY fehlt – Google ist nicht eingerichtet", "GEMINI_API_KEY missing – Google is not set up") : `${L("kein Bild-Anbieter eingerichtet", "no image provider set up")} – ${imageSetupHint()}`);
   mkdirSync(dir, { recursive: true });
-  const limit = Number(process.env.BILD_PRO_TAG || 10);
+  // Leer = unbegrenzt; eine Zahl begrenzt die Bilder pro Tag (gegen unerwartete Kosten)
+  const raw = (process.env.BILD_PRO_TAG || "").trim();
+  const limit = /^\d+$/.test(raw) ? Number(raw) : Infinity;
   const cnt = countToday(dir);
   if (!noLimit && cnt.n >= limit) throw new Error(L(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`, `Daily limit of ${limit} pictures reached (BILD_PRO_TAG)`));
   const prompt = imagePrompt(d);

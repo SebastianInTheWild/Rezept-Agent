@@ -1,14 +1,15 @@
 # Rezept-Agent für Portainer. Das Programm kommt als fertiges Image aus GitHub (GitHub Actions baut es bei jedem Push auf main),
 # die Daten liegen in einem Ordner auf dem Docker-Host:
 #
-#   /home/sebastian/docker/rezepte/
+#   ${AGENTS_HOST_DIR}/   (Umgebungsvariable, Standard ./ – in Portainer einen absoluten Pfad eintragen)
 #     zeitplan.conf   Wann welcher Agent läuft (Änderungen gelten ohne Neustart)
 #     agents/         Ein Ordner je Agent (agent.json + prompt.md) – wird alle 10 Minuten aus GitHub aktualisiert
 #     daten/          Merklisten, Logs, Sicherungen, Einstellungen aus der Weboberfläche (umgebung.json)
 #
-# Zugangsdaten entweder hier unter „Environment variables“ oder in der Weboberfläche unter „Einstellungen“ (hat Vorrang).
+# Zugangsdaten und Einstellungen in der Weboberfläche unter „Einstellungen“. Unter „Environment variables“ nur AGENTS_HOST_DIR,
+# TZ und optional WEB_PASSWORT (siehe .env.example). Alte Einträge dort für andere Werte gelten nicht mehr.
 #
-# Der Container läuft als Benutzer 1000 (Besitzer von /home/sebastian/docker), damit du alle Dateien ohne sudo bearbeiten kannst.
+# Der Container läuft als Benutzer PUID:PGID (Standard 1000, Besitzer des Ordners), damit du alle Dateien ohne sudo bearbeiten kannst.
 services:
   agents:
     image: ghcr.io/sebastianinthewild/rezept-agent:${IMAGE_TAG:-latest}
@@ -17,52 +18,11 @@ services:
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     environment:
-      # Zugangsdaten: in Portainer unter „Environment variables“ eintragen (Vorlage: .env.example)
-      # Sprache für Rezepte, Slack und Weboberfläche: de (Standard) oder en – auch in der Weboberfläche einstellbar
-      SPRACHE: ${SPRACHE:-}
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
-      TANDOOR_URL: ${TANDOOR_URL:-https://app.tandoor.dev}
-      TANDOOR_TOKEN: ${TANDOOR_TOKEN:-}
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
-      SLACK_CHANNEL: ${SLACK_CHANNEL:-}
-      # Slack-Manifest automatisch einspielen (optional): App-ID und Refresh-Token der App-Konfiguration
-      SLACK_APP_ID: ${SLACK_APP_ID:-}
-      SLACK_CONFIG_TOKEN: ${SLACK_CONFIG_TOKEN:-}
-      # Nach jedem Containerstart „läuft wieder“ mit Version in den Kanal schreiben (Standard an, „aus“ = nein)
-      NEUSTART_MELDUNG: ${NEUSTART_MELDUNG:-}
-      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
-      CF_AI_TOKEN: ${CF_AI_TOKEN:-}
-      BILD_ANBIETER: ${BILD_ANBIETER:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      # Google-Modell: gemini-nano-banana-2.1 (Standard) | gemini-2.5-flash-image (günstiger) | gemini-3-pro-image (beste Qualität)
-      GOOGLE_BILD_MODELL: ${GOOGLE_BILD_MODELL:-gemini-nano-banana-2.1}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      # Slack /google: monatliches Google-Guthaben in Dollar (Rest + Warnung bei 80 %), optional eigene Preise für die Schätzung
-      GOOGLE_GUTHABEN: ${GOOGLE_GUTHABEN:-}
-      GOOGLE_PREIS_BILD: ${GOOGLE_PREIS_BILD:-}
-      GEMINI_PREIS_EINGABE: ${GEMINI_PREIS_EINGABE:-}
-      GEMINI_PREIS_AUSGABE: ${GEMINI_PREIS_AUSGABE:-}
-      # Rezepte aus Reels/Shorts: Gemini sieht sich das Video an (GEMINI_API_KEY von oben); optional Cookies, falls Instagram blockt
-      GEMINI_VIDEO_MODELL: ${GEMINI_VIDEO_MODELL:-}
-      VIDEO_MAX_SEKUNDEN: ${VIDEO_MAX_SEKUNDEN:-}
-      VIDEO_COOKIES: ${VIDEO_COOKIES:-}
-      BILD_PRO_TAG: ${BILD_PRO_TAG:-}
-      # an (Standard): neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen
-      BILD_EINHEITLICH: ${BILD_EINHEITLICH:-}
+      # Nur was vor dem Start feststehen muss (Vorlage: .env.example). Zugangsdaten und alle übrigen Einstellungen
+      # kommen aus der Weboberfläche („Einstellungen“, gespeichert in daten/umgebung.json).
       WEB_PASSWORT: ${WEB_PASSWORT:-}
-      # Wochenplan (/wochenplan): Portionen und Mahlzeit-Typ im Tandoor-Essensplan
-      WOCHENPLAN_PORTIONEN: ${WOCHENPLAN_PORTIONEN:-}
-      WOCHENPLAN_MAHLZEIT: ${WOCHENPLAN_MAHLZEIT:-}
-      # Tägliche Sicherung aller Rezepte in ein privates GitHub-Repo (Uhrzeit in zeitplan.conf: rezept-sicherung = 03:30)
-      BACKUP_REPO: ${BACKUP_REPO:-}
-      BACKUP_TOKEN: ${BACKUP_TOKEN:-}
-      BACKUP_BRANCH: ${BACKUP_BRANCH:-}
-      # Läuft ein Agent ins Claude-Limit, wird er alle N Minuten erneut gestartet (höchstens 24 Stunden lang)
-      CLAUDE_WIEDERHOLEN_MIN: ${CLAUDE_WIEDERHOLEN_MIN:-30}
-      # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
-      AGENTS_SYNC: ${AGENTS_SYNC:-10}
+      # an = Zugangsdaten auch ohne WEB_PASSWORT in der Weboberfläche änderbar – nur, wenn der Proxy die Seite schützt
+      WEB_ZUGANGSDATEN_OHNE_PASSWORT: ${WEB_ZUGANGSDATEN_OHNE_PASSWORT:-}
       TZ: ${TZ:-Europe/Berlin}
       AGENTS_DIR: /data/agents
       DATA_DIR: /data/daten
@@ -85,7 +45,8 @@ services:
     networks:
       - ProxyNetwork
     volumes:
-      - ${AGENTS_HOST_DIR:-/home/sebastian/docker/rezepte}:/data
+      # Ordner auf dem Host (AGENTS_HOST_DIR, Standard ./) – in Portainer einen absoluten Pfad als Umgebungsvariable setzen
+      - ${AGENTS_HOST_DIR:-./}:/data
 
 networks:
   ProxyNetwork:

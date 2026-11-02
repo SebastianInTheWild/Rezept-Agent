@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { post, slackReady } from "./lib/slack.mjs";
 import { L } from "./lib/i18n.mjs";
+import { stamp } from "./lib/protokoll.mjs";
 
 const APP = dirname(fileURLToPath(import.meta.url));
 export const AGENTS_DIR = process.env.AGENTS_DIR || join(APP, "..", "agents");
@@ -101,7 +102,7 @@ async function run(id, quiet, by) {
   mkdirSync(join(data, "logs"), { recursive: true });
   const logFile = join(data, "logs", `${new Date().toISOString().slice(0, 10)}.log`);
   const log = (line) => {
-    const msg = `[${new Date().toLocaleString("de-DE")}] [${id}] ${line}`;
+    const msg = `[${stamp()}] [${id}] ${line}`;
     console.log(msg);
     appendFileSync(logFile, msg + "\n");
   };

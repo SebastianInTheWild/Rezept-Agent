@@ -20,12 +20,14 @@ Nothing is changed in Tandoor without you: every import and every improvement fi
 
 **Uniform picture style:** all AI photos use the same style – table, light, angle and tableware are defined in [`agents/bild-stil.md`](agents/bild-stil.md). New recipes always get an AI photo in this style, even if the source has its own photo; the agent only describes what the dish looks like (based on the source photo or the video stills). Change the style in that file (applies from the next picture, via GitHub without restart); `/all-images` brings all existing recipes to the style. `BILD_EINHEITLICH=aus` uses the source photo again. Every AI picture gets the keyword **`ki-bild`** in Tandoor (for filtering); internally the agent remembers model, date and style. If you replace an AI picture in Tandoor with your own photo, the keyword disappears with the next daily check.
 
+**Pictures when checking:** improvement proposals also bring the picture to the uniform style – if the original already has an AI picture in the current style it stays, otherwise the agent creates a new one. When **applied**, the old picture is backed up first (`daten/rezepte/sicherungen`, like `/new-image`); if the backup fails, the old picture stays. Every proposal in Slack has a **🎨 New picture** button to (re)create the picture afterwards, e.g. when it failed at creation; this doesn't count against `BILD_PRO_TAG`.
+
 ## Setup with Portainer
 
-The program comes as a **ready-made image** from GitHub: on every push to `main` (and every Monday with a fresh Claude Code) GitHub Actions builds `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` runs this image; the data lives in **one folder on the Docker host** (default `/home/sebastian/docker/rezepte`, change with `AGENTS_HOST_DIR`):
+The program comes as a **ready-made image** from GitHub: on every push to `main` (and every Monday with a fresh Claude Code) GitHub Actions builds `ghcr.io/sebastianinthewild/rezept-agent:latest` (`.github/workflows/image.yml`). `portainer/stack-host.yml` runs this image; the data lives in **one folder on the Docker host** (`AGENTS_HOST_DIR`, default `./`; in Portainer enter an absolute path, see [Credentials](#credentials)):
 
 ```
-/home/sebastian/docker/rezepte/
+AGENTS_HOST_DIR/
   zeitplan.conf   when which agent runs (changes apply without restart)
   agents/         one folder per agent (agent.json + prompt.md), synced from GitHub every 10 minutes
   daten/          drafts, logs, backups, settings from the web UI
@@ -66,8 +68,8 @@ Every day (default 03:30, changeable in the schedule or via **Back up now**) the
 
 | In the repo | What |
 | --- | --- |
-| `rezepte/<id>/rezept.json`, `bild.*` | current state of every recipe with its picture; older states are in the git history |
-| `geloescht/<id>/` | recipes deleted in Tandoor, with deletion date – restore them (with picture) in one click in the web UI under **Backups**, or download the JSON |
+| `rezepte/<id> - <name>/rezept.json`, `bild.*` | current state of every recipe with its picture, e.g. `rezepte/12 - Lasagne/`; older states are in the git history. If the name changes, the folder is renamed |
+| `geloescht/<id> - <name>/` | recipes deleted in Tandoor, with deletion date – restore them (with picture) in one click in the web UI under **Backups**, or download the JSON |
 | `sicherungen/` | everything from `daten/rezepte/sicherungen`, kept permanently there (locally cleaned up after 180 days) |
 | `index.json` | overview |
 
@@ -96,7 +98,7 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | Command | What it does |
 | --- | --- |
 | `/stats` (`/statistik`) | Recipe statistics: total, checked, open, still to check, without picture |
-| `/open` (`/offen`) | Proposals waiting for a decision, with link |
+| `/open` (`/offen`) `[resend]` | Proposals waiting for a decision, with link. `/open resend` posts all open proposals and meal plans to the channel again, with the current buttons (e.g. **🎨 New picture**). The old message becomes a link to the new one; replies in its thread still work |
 | `/recipe <name>` (`/rezept`) | Search a recipe in Tandoor, with status |
 | `/no-image [count \| name]` (`/ohne-bild`) | Recipes without a picture, each as its own message in the channel with a **🎨 Create picture** button (AI photo straight into Tandoor, then **🔄 Create another picture**). Default 5; recipes already shown come back after 7 days, with a name it searches specifically. Own photos are never replaced. |
 | `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |
@@ -131,7 +133,14 @@ Instagram sometimes blocks requests without login. The agent then replies in the
 
 ## Credentials
 
-As environment variables, in Portainer under "Environment variables" (template: `.env.example`) – or in the web UI under **Settings** (takes precedence, see above). Only `WEB_PASSWORT` always belongs in Portainer.
+Portainer's "Environment variables" (or `.env`) only hold what has to be fixed before the start (template: `.env.example`):
+
+- **AGENTS_HOST_DIR:** folder on the Docker host for schedule, agents and data. Default `./`. In Portainer always enter an absolute path, e.g. `/home/user/docker/rezepte`, because `./` there points into Portainer's own stack folder.
+- **TZ:** time zone, default `Europe/Berlin`.
+- **WEB_PASSWORT**, **WEB_ZUGANGSDATEN_OHNE_PASSWORT:** see below. You need one of them to enter the credentials in the web UI.
+- optional **PUID**/**PGID** (user in the container, default 1000), **WEB_DOMAIN**, **IMAGE_TAG**.
+
+Everything else goes into the web UI under **Settings** (stored in `daten/umgebung.json`, applies after the restart):
 
 - **SPRACHE:** `de` (default) or `en`.
 - **CLAUDE_CODE_OAUTH_TOKEN:** run `claude setup-token` on a computer with Claude Code.
@@ -139,11 +148,15 @@ As environment variables, in Portainer under "Environment variables" (template: 
 - **SLACK_BOT_TOKEN**, **SLACK_APP_TOKEN**, **SLACK_CHANNEL:** create the Slack app from `slack-app-manifest.yml`. Failed runs are also reported in the channel.
 - **GEMINI_API_KEY:** for AI photos with Google Nano Banana and for reels/shorts (optional, about $0.03–0.04 per picture). Key at [aistudio.google.com](https://aistudio.google.com) → "Get API key", billing must be enabled. Choose the model with `GOOGLE_BILD_MODELL`: `gemini-nano-banana-2.1` (default), `gemini-2.5-flash-image` (older) or `gemini-3-pro-image` (best quality).
 - **SLACK_APP_ID**, **SLACK_CONFIG_TOKEN:** optional, so changes to `slack-app-manifest.yml` (e.g. new commands, English command names) reach Slack by themselves. App ID under api.slack.com/apps → your app → Basic Information; token under api.slack.com/apps → at the bottom "Your App Configuration Tokens" → Generate Token, take the **refresh token** (`xoxe-1-…`). The container rotates it by itself afterwards (`daten/slack-config-token.json`).
-- **BILD_ANBIETER:** optional `google`, `cloudflare` or `openai`; without it Google before Cloudflare before OpenAI. **BILD_PRO_TAG:** at most this many AI photos per day (default 10). **BILD_EINHEITLICH:** `an` (default) / `aus`.
+- **BILD_ANBIETER:** optional `google`, `cloudflare` or `openai`; without it Google before Cloudflare before OpenAI. **BILD_PRO_TAG:** at most this many AI photos per day; empty = unlimited (explicit requests like /new-image, /all-images or 🎨 New picture never count). **BILD_EINHEITLICH:** `an` (default) / `aus`.
 - **CF_ACCOUNT_ID**, **CF_AI_TOKEN:** for AI photos (optional, free; fallback for Google). To show the free neurons after each photo and with `/neurons`, the token also needs "Account Analytics: Read".
 - **OPENAI_API_KEY:** optional, for AI photos with OpenAI GPT Image (paid).
 - **GEMINI_VIDEO_MODELL**, **VIDEO_MAX_SEKUNDEN**, **VIDEO_COOKIES:** optional, for reels and shorts (see above).
-- **WEB_PASSWORT:** password for the web UI. Without it, credentials can't be changed there.
+- Also: Claude API key instead of the token, wait time after the Claude limit, meal plan, GitHub backup and the GitHub sync (repo, branch, `app/`).
+
+Only in Portainer or `.env`:
+
+- **WEB_PASSWORT:** password for the web UI (HTTP login). Empty = no login. Without a password, credentials can't be changed there – unless **WEB_ZUGANGSDATEN_OHNE_PASSWORT=an** is set: then it works without login too. Only set it if the page is protected otherwise, e.g. reachable only from your home network via an **Access List** in Nginx Proxy Manager (`192.168.0.0/16`). The switch can deliberately only be set in Portainer/`.env`, not in the web UI; the web UI then shows a notice.
 
 ## Setup with Docker Compose
 

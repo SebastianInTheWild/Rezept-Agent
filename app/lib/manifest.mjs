@@ -130,7 +130,7 @@ const EN = {
   commands: {
     "/neuronen": ["Cloudflare neurons left today for AI photos"],
     "/statistik": ["Recipe statistics – total, checked, open, still to check"],
-    "/offen": ["Proposals waiting for your decision"],
+    "/offen": ["Proposals waiting for your decision (“resend” posts them all again)", "[resend]"],
     "/rezept": ["Search a recipe in Tandoor, with status", "<name>"],
     "/ohne-bild": ["Show recipes without a picture, with a button for an AI photo", "[count | name]"],
     "/bild-neu": ["New AI picture from Google for one recipe", "<name | ID>"],

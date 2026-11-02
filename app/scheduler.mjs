@@ -7,6 +7,7 @@
 //   node scheduler.mjs run <id>  Agent sofort einmal starten
 
 import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
+import "./lib/protokoll.mjs"; // Zeitstempel TT.MM.JJJJ im Log
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry } from "./run-agent.mjs";

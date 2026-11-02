@@ -51,6 +51,23 @@ test("Einstellungen: Geheimnisse ohne WEB_PASSWORT gesperrt, normale Werte speic
   assert.equal((await local("/api/umgebung", { method: "PUT", body: "values=x" })).status, 415);
 });
 
+test("Ohne Passwort: Schalter WEB_ZUGANGSDATEN_OHNE_PASSWORT gibt Zugangsdaten frei – aber nur aus Portainer, nicht über die Seite", async () => {
+  const put = (values) => local("/api/umgebung", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
+  // Über die Seite lässt sich der Schalter nicht setzen (sonst könnte jeder die Sperre aufheben)
+  assert.equal((await put({ WEB_ZUGANGSDATEN_OHNE_PASSWORT: "an" })).status, 400);
+  assert.equal((await (await local("/api/umgebung")).json()).secrets, false);
+  process.env.WEB_ZUGANGSDATEN_OHNE_PASSWORT = "an";
+  try {
+    const state = await (await local("/api/umgebung")).json();
+    assert.deepEqual([state.secrets, state.open], [true, true]);
+    assert.equal((await put({ TANDOOR_TOKEN: "neuer-token-1234" })).status, 200);
+    const field = (await (await local("/api/umgebung")).json()).fields.find((f) => f.key === "TANDOOR_TOKEN");
+    assert.equal(field.shown, "••••1234", "Geheimnis nur gekürzt angezeigt");
+  } finally {
+    delete process.env.WEB_ZUGANGSDATEN_OHNE_PASSWORT;
+  }
+});
+
 test("Sicherungen: Liste nach Rezept, Bilder und JSON getrennt", async () => {
   const list = await (await local("/api/sicherungen")).json();
   const flamm = list.items.find((g) => g.id === 1);

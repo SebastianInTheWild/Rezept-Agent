@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { all, api, isDraft, recipeUrl } from "./tandoor.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 import { L, locale } from "./i18n.mjs";
-import { loadStore, saveStore, loadJob, saveJob, CHANNEL } from "./rezepte.mjs";
+import { loadStore, saveStore, loadJob, saveJob, CHANNEL, resendSlack, slackMatches } from "./rezepte.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 export const PLAN_FILE = () => join(process.env.AGENT_DATA || join(DATA_DIR, "wochenplan"), "wochenplan.json");
@@ -151,7 +151,18 @@ export async function proposePlan() {
   return { ok: true, plan: id, days: days.map((x) => `${x.date}: ${x.name}`) };
 }
 
-export const planByThread = (ts) => Object.values(loadStore().plans || {}).find((p) => p.slack && (p.slack.thread_ts === ts || p.slack.last_ts === ts));
+export const planByThread = (ts) => Object.values(loadStore().plans || {}).find((p) => slackMatches(p.slack, ts));
+export const openPlans = () => Object.values(loadStore().plans || {}).filter((p) => p.status === "open");
+
+/** Offenen Plan neu in den Kanal schicken („/offen neu“) */
+export async function resendPlan(id) {
+  const store = loadStore();
+  const plan = store.plans?.[id];
+  if (!plan || plan.status !== "open") throw new Error(L("Plan ist nicht mehr offen", "Plan is no longer open"));
+  await resendSlack(plan, planMessage(plan));
+  saveStore(store);
+  return { ok: true };
+}
 
 /** Plan in den Tandoor-Essensplan übernehmen; shopping = Zutaten auf die Einkaufsliste */
 export async function applyPlan(id, user, { shopping = true } = {}) {

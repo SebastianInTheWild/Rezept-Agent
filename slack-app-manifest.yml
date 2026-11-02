@@ -48,7 +48,8 @@ features:
       should_escape: false
     - command: /offen
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
-      description: Vorschläge, die auf deine Entscheidung warten
+      description: Vorschläge, die auf deine Entscheidung warten (mit „neu“ alle noch einmal schicken)
+      usage_hint: "[neu]"
       should_escape: false
     - command: /rezept
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
