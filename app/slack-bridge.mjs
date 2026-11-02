@@ -14,7 +14,7 @@ import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const JOBS = join(REZEPTE, "auftraege");
@@ -230,24 +230,30 @@ async function onAllAction(payload, a, user) {
   const channel = payload.channel.id;
   const { ts } = payload.message;
   const [, , step] = a.action_id.split("_"); // rz_all_<schritt>
-  const starter = a.value.split(":")[0];
+  // Wert: „<wer>:<auswahl>:<anzahl>“ (ältere Nachrichten: „<wer>:<anzahl>“ = alle)
+  const parts = a.value.split(":");
+  const [starter, mode, n] = parts.length === 3 ? [parts[0], parts[1], Number(parts[2])] : [parts[0], "all", Number(parts[1])];
   if (["yes1", "yes2"].includes(step) && user !== starter) return; // nur wer gefragt hat, bestätigt
   if (step === "no") return update(channel, ts, L("Abgebrochen", "Cancelled"), [section(L(`❎ <@${user}> hat abgebrochen – kein Bild wurde geändert.`, `❎ <@${user}> cancelled – no picture was changed.`))]);
   if (step === "yes1") {
-    const n = Number(a.value.split(":")[1]);
-    return update(channel, ts, L("Wirklich alle Bilder erneuern?", "Really renew all pictures?"), [
+    const what = {
+      all: L(`*alle ${rezepte(n)}* ein neues KI-Bild von Google (${googleModel()}), auch die mit eigenem Foto`, `*all ${rezepte(n)}* get a new AI picture from Google (${googleModel()}), including those with their own photo`),
+      missing: L(`*${rezepte(n)} ohne KI-Bild* (eigene Fotos und Rezepte ohne Bild) ein neues KI-Bild von Google (${googleModel()})`, `*${rezepte(n)} without an AI picture* (own photos and recipes without a picture) get a new AI picture from Google (${googleModel()})`),
+      old: L(`*${rezepte(n)} mit KI-Bild in einem älteren Stil* ein neues KI-Bild im aktuellen Stil`, `*${rezepte(n)} with an AI picture in an older style* get a new AI picture in the current style`),
+    }[mode];
+    return update(channel, ts, L("Wirklich Bilder erneuern?", "Really renew pictures?"), [
       section(
         L(
-          `⚠️ *Wirklich sicher, <@${user}>?*\nDann bekommen *alle ${rezepte(n)}* ein neues KI-Bild von Google (${googleModel()}), auch die mit eigenem Foto. Kosten ${costText(n)}.\nDie alten Bilder werden vorher gesichert (180 Tage in daten/rezepte/sicherungen). Rezepte, deren Bild sich nicht sichern lässt, bleiben unverändert.`,
-          `⚠️ *Are you sure, <@${user}>?*\nThen *all ${rezepte(n)}* get a new AI picture from Google (${googleModel()}), including those with their own photo. Cost ${costText(n)}.\nThe old pictures are backed up first (180 days in daten/rezepte/sicherungen). Recipes whose picture can't be backed up stay unchanged.`,
+          `⚠️ *Wirklich sicher, <@${user}>?*\nDann bekommen ${what}. Kosten ${costText(n)}.\nDie alten Bilder werden vorher gesichert (180 Tage in daten/rezepte/sicherungen). Rezepte, deren Bild sich nicht sichern lässt, bleiben unverändert.`,
+          `⚠️ *Are you sure, <@${user}>?*\nThen ${what}. Cost ${costText(n)}.\nThe old pictures are backed up first (180 days in daten/rezepte/sicherungen). Recipes whose picture can't be backed up stay unchanged.`,
         ),
       ),
-      { type: "actions", elements: [button(L(`Ja, wirklich alle ${n} erneuern`, `Yes, really renew all ${n}`), "rz_all_yes2", `${user}:${n}`, "danger"), button(L("Abbrechen", "Cancel"), "rz_all_no", user)] },
+      { type: "actions", elements: [button(L(`Ja, wirklich ${n} erneuern`, `Yes, really renew ${n}`), "rz_all_yes2", `${user}:${mode}:${n}`, "danger"), button(L("Abbrechen", "Cancel"), "rz_all_no", user)] },
     ]);
   }
   if (step === "yes2") {
     if (allRunning()) return update(channel, ts, L("Läuft schon", "Already running"), [section(L("⏳ Es läuft schon ein Auftrag „Alle Bilder erneuern“.", "⏳ A “renew all pictures” job is already running."))]);
-    const ids = await allRecipeIds();
+    const ids = await allRecipeIds(mode);
     const j = { status: "running", user, channel, ts, model: googleModel(), started: new Date().toISOString(), ids, next: 0, ok: 0, skipped: [], failed: [] };
     saveAll(j);
     await showAll(j);
@@ -327,7 +333,12 @@ const commands = {
     if (!hits.length) return L(`Kein Rezept zu „${esc(q)}“ gefunden.`, `No recipe found for “${esc(q)}”.`);
     const icon = { checked: "✅", skip: "🚫", open: "⏳", todo: "📝" };
     const links = await Promise.all(hits.map((h) => permalink(h.proposal)));
-    const lines = hits.map((h, i) => `• ${icon[h.state]} ${link(h.url, h.name)} · ${h.status}${links[i] ? ` · ${link(links[i], L("zum Vorschlag", "to the proposal"))}` : ""}`);
+    const aiText = (ai) => {
+      if (!ai) return "";
+      const when = ai.at ? new Date(ai.at).toLocaleDateString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", day: "2-digit", month: "2-digit" }) : "";
+      return ` · 🎨 ${L("KI-Bild", "AI picture")}${ai.model && ai.model !== "?" ? ` (${ai.model}${when ? `, ${when}` : ""})` : ""}${ai.oldStyle ? L(" · alter Stil", " · old style") : ""}`;
+    };
+    const lines = hits.map((h, i) => `• ${icon[h.state]} ${link(h.url, h.name)} · ${h.status}${aiText(h.ai)}${links[i] ? ` · ${link(links[i], L("zum Vorschlag", "to the proposal"))}` : ""}`);
     return [L(`🔎 *${hits.length} Treffer* zu „${esc(q)}“`, `🔎 *${hits.length} ${hits.length === 1 ? "hit" : "hits"}* for “${esc(q)}”`), ...lines].join("\n");
   },
 
@@ -373,11 +384,20 @@ const commands = {
     if (!googleReady()) return L("Google ist nicht eingerichtet – `GEMINI_API_KEY` fehlt.", "Google is not set up – `GEMINI_API_KEY` is missing.");
     const run = loadAll();
     if (allRunning()) return L(`⏳ Läuft schon: ${run.next} von ${run.ids.length} erledigt (${run.status === "paused" ? "angehalten" : "läuft"}). Anhalten oder weitermachen mit den Knöpfen an der Nachricht im Kanal.`, `⏳ Already running: ${run.next} of ${run.ids.length} done (${run.status === "paused" ? "paused" : "running"}). Pause or continue with the buttons on the message in the channel.`);
-    const n = (await allRecipeIds()).length;
+    const [n, missing, old] = await Promise.all(["all", "missing", "old"].map((m) => allRecipeIds(m).then((l) => l.length)));
     if (!n) return L("Es gibt keine Rezepte.", "There are no recipes.");
-    await post(c.channel_id, L("Alle Bilder erneuern?", "Renew all pictures?"), [
-      section(L(`🎨 <@${c.user_id}> möchte *alle ${rezepte(n)}* mit einem neuen KI-Bild von Google (${googleModel()}) versehen – auch die mit eigenem Foto. Kosten ${costText(n)}.\nSoll ich wirklich alle Bilder erneuern?`, `🎨 <@${c.user_id}> wants to give *all ${rezepte(n)}* a new AI picture from Google (${googleModel()}) – including those with their own photo. Cost ${costText(n)}.\nShould I really renew all pictures?`)),
-      { type: "actions", elements: [button(L(`Ja, alle ${n} Bilder erneuern`, `Yes, renew all ${n} pictures`), "rz_all_yes1", `${c.user_id}:${n}`, "primary"), button(L("Abbrechen", "Cancel"), "rz_all_no", c.user_id)] },
+    const choices = [button(L(`Alle ${n}`, `All ${n}`), "rz_all_yes1", `${c.user_id}:all:${n}`, "primary")];
+    if (missing) choices.push(button(L(`Nur ohne KI-Bild (${missing})`, `Only without AI picture (${missing})`), "rz_all_yes1", `${c.user_id}:missing:${missing}`));
+    if (old) choices.push(button(L(`Nur alter Stil (${old})`, `Only old style (${old})`), "rz_all_yes1", `${c.user_id}:old:${old}`));
+    choices.push(button(L("Abbrechen", "Cancel"), "rz_all_no", c.user_id));
+    await post(c.channel_id, L("Bilder erneuern?", "Renew pictures?"), [
+      section(
+        L(
+          `🎨 <@${c.user_id}> möchte Rezeptbilder mit Google (${googleModel()}) neu erzeugen. Welche?\n• *Alle ${rezepte(n)}* – auch eigene Fotos · ${costText(n)}\n• *Nur ohne KI-Bild:* ${rezepte(missing)} (eigene Fotos und Rezepte ohne Bild) · ${costText(missing)}\n• *Nur alter Stil:* ${rezepte(old)} mit KI-Bild in einem älteren Stil · ${costText(old)}`,
+          `🎨 <@${c.user_id}> wants to recreate recipe pictures with Google (${googleModel()}). Which ones?\n• *All ${rezepte(n)}* – including own photos · ${costText(n)}\n• *Only without AI picture:* ${rezepte(missing)} (own photos and recipes without a picture) · ${costText(missing)}\n• *Only old style:* ${rezepte(old)} with an AI picture in an older style · ${costText(old)}`,
+        ),
+      ),
+      { type: "actions", elements: choices },
     ]);
     return L("Die Rückfrage steht im Kanal – nur du kannst sie bestätigen.", "The confirmation is in the channel – only you can confirm it.");
   },
@@ -476,15 +496,22 @@ async function announceStart() {
 announceStart();
 
 // Einmal täglich alte Dateien wegräumen (Fotos, Eingänge, Aufträge nach 30 Tagen, Sicherungen nach 180 Tagen)
-const tidy = () => {
+// Dabei auch das Merkmal ki-bild abgleichen (Bild in Tandoor ersetzt/gelöscht → Schlagwort weg; fehlt es → setzen)
+const tidy = async () => {
   try {
     const r = cleanup();
     if (Object.keys(r).length) log(`Aufgeräumt: ${Object.entries(r).map(([d, n]) => `${n} in ${d}`).join(", ")}`);
   } catch (e) {
     log(`Aufräumen fehlgeschlagen: ${e.message}`);
   }
+  try {
+    const k = await reconcileAiImages();
+    if (k.added || k.removed) log(`ki-bild abgeglichen: ${k.added} gesetzt, ${k.removed} entfernt`);
+  } catch (e) {
+    log(`ki-bild-Abgleich fehlgeschlagen: ${e.message}`);
+  }
 };
-tidy();
+setTimeout(tidy, 60_000); // nach dem Start kurz warten, dann täglich
 setInterval(tidy, 86_400_000);
 
 // Einmal täglich die Rezept-Statistik in den Kanal. Uhrzeit aus zeitplan.conf („rezept-statistik = 19:00“,

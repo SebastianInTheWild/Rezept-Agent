@@ -5,8 +5,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT } from "./tandoor.mjs";
-import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote } from "./bild.mjs";
+import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT } from "./tandoor.mjs";
+import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
@@ -99,7 +99,7 @@ export async function context() {
     standard: existsSync(STANDARD()) ? readFileSync(STANDARD(), "utf8") : "",
     units: uniq([...units.map((u) => u.name), ...(lang() === "en" ? EN_UNITS : [])]).sort((a, b) => a.localeCompare(b, "de")),
     keywords: keywords
-      .filter((k) => !STATUS_KW.includes(k.name))
+      .filter((k) => !SYSTEM_KW.includes(k.name))
       .map((k) => ({ name: k.name, recipes: count[k.name] || 0 }))
       .sort((a, b) => b.recipes - a.recipes),
     foods: foods.map((f) => f.name).sort((a, b) => a.localeCompare(b, "de")),
@@ -147,6 +147,7 @@ export async function stats(now = new Date()) {
     skipped,
     todo,
     no_image: recipes.filter((r) => !r.image).length,
+    ai_image: recipes.filter((r) => has(r, AI_KW)).length,
     batch,
     days_left: batch > 0 ? Math.ceil(todo / batch) : null,
     today: {
@@ -171,6 +172,7 @@ export function statsMessage(s, date = new Date()) {
       (s.todo && s.days_left ? L(` – bei ${s.batch} pro Tag noch etwa ${days(s.days_left)}`, ` – at ${s.batch} per day about ${days(s.days_left)} left`) : s.todo && !s.batch ? L(" – tägliche Prüfung ist auf 0 gestellt", " – daily check is set to 0") : ""),
   ];
   if (s.no_image !== undefined) lines.push(`• 🖼️ ${L("ohne Bild", "without picture")}: *${s.no_image}*` + (s.no_image ? L(` – \`${cmd("/ohne-bild")}\` zeigt sie mit Knopf für ein KI-Foto`, ` – \`${cmd("/ohne-bild")}\` shows them with a button for an AI photo`) : ""));
+  if (s.ai_image !== undefined) lines.push(`• 🎨 ${L("mit KI-Bild", "with AI picture")}: ${s.ai_image}`);
   const t = s.today;
   if (t.proposed || t.applied || t.rejected) lines.push(L(`• Heute: ${t.proposed} neu vorgeschlagen · ${t.applied} übernommen · ${t.rejected} verworfen`, `• Today: ${t.proposed} proposed · ${t.applied} applied · ${t.rejected} discarded`));
   if (!s.todo && !s.open) lines.push(L("🎉 Alle Rezepte sind geprüft.", "🎉 All recipes are checked."));
@@ -193,7 +195,8 @@ export async function findRecipes(q) {
       const k = kwNames(r);
       const state = k.includes(KW.checked) ? "checked" : k.includes(KW.skip) ? "skip" : k.includes(KW.open) || open.has(r.id) ? "open" : "todo";
       const status = { checked: L("geprüft", "checked"), skip: L("nicht bearbeiten", "leave as is"), open: L("Vorschlag offen", "proposal open"), todo: L("noch nicht geprüft", "not checked yet") }[state];
-      return { id: r.id, name: r.name, url: recipeUrl(r.id), state, status, proposal: open.get(r.id) || null };
+      const ai = k.includes(AI_KW) ? aiImageInfo(r.id) || { model: "?", at: null, oldStyle: true } : null;
+      return { id: r.id, name: r.name, url: recipeUrl(r.id), state, status, proposal: open.get(r.id) || null, ai };
     });
 }
 
@@ -279,7 +282,8 @@ export async function generateRecipeImage(id, { replace = false } = {}) {
   const jpg = await generateImage(simplify(r), REZEPTE, replace ? { only: "google", noLimit: true } : {});
   if (DRY) return { ok: true, dry: true, name: r.name, url: recipeUrl(r.id) };
   await uploadImage(r.id, jpg, String(r.id));
-  // Der Upload ändert updated_at – geprüfte bzw. abgelehnte Rezepte sollen deshalb nicht erneut in die Prüfung
+  await markAiImage(r.id, lastImageInfo());
+  // Upload und Schlagwort ändern updated_at – geprüfte bzw. abgelehnte Rezepte sollen deshalb nicht erneut in die Prüfung
   const store = loadStore();
   const after = await getRecipe(r.id);
   if (store.checked[r.id]) store.checked[r.id] = after.updated_at;
@@ -290,12 +294,89 @@ export async function generateRecipeImage(id, { replace = false } = {}) {
   return { ok: true, id: r.id, name: r.name, url: recipeUrl(r.id), info: await lastImageNote(), backup };
 }
 
-/** Alle Rezepte (ohne Entwürfe) für /bild-alle, nach Name sortiert. */
-export const allRecipeIds = async () =>
-  (await all("/api/recipe/"))
+// ---------- Merkmal „KI-Bild“ (intern in vorschlaege.json → ai_images, sichtbar als Schlagwort ki-bild) ----------
+
+// Pfad des Bildes ohne Signatur/Query (signierte S3-Adressen ändern sich bei jedem Abruf, der Pfad nicht)
+const imagePath = (url) => String(url || "").split("?")[0];
+
+// Schlagwort ki-bild setzen/entfernen; liefert das neue updated_at und hält checked/rejected aktuell,
+// damit geprüfte Rezepte deswegen nicht erneut in die Qualitätsprüfung rutschen
+async function setAiKeyword(r, on, store) {
+  const names = kwNames(r);
+  if (names.includes(AI_KW) === on) return r.updated_at;
+  const next = on ? [...names, AI_KW] : names.filter((k) => k !== AI_KW);
+  const res = await api("PATCH", `/api/recipe/${r.id}/`, { keywords: next.map((name) => ({ name })) });
+  if (store.checked?.[r.id]) store.checked[r.id] = res.updated_at;
+  if (store.rejected?.[r.id]) store.rejected[r.id] = res.updated_at;
+  return res.updated_at;
+}
+
+/** Rezept als „Bild mit KI erzeugt“ merken (Anbieter, Modell, Stil, Bildpfad) und Schlagwort ki-bild setzen. */
+export async function markAiImage(id, info, store) {
+  const own = !store;
+  store ||= loadStore();
+  const r = await getRecipe(id);
+  const updated = await setAiKeyword(r, true, store);
+  store.ai_images ||= {};
+  store.ai_images[id] = { provider: info.provider, model: info.model, style: info.style, at: new Date().toISOString(), image: imagePath(r.image) };
+  if (own) saveStore(store);
+  return updated;
+}
+
+/**
+ * Täglicher Abgleich: Wurde ein KI-Bild in Tandoor ersetzt oder gelöscht, verschwinden Eintrag und Schlagwort;
+ * fehlt das Schlagwort bei einem bekannten KI-Bild, wird es gesetzt. Übernimmt auch ältere KI-Bilder aus /ohne-bild.
+ */
+export async function reconcileAiImages() {
+  const store = loadStore();
+  const reg = (store.ai_images ||= {});
+  for (const [id, e] of Object.entries(store.no_image || {})) if (e.generated && !reg[id]) reg[id] = { provider: "?", model: "?", style: "?", at: e.generated, image: null };
+  const byId = new Map((await all("/api/recipe/")).map((r) => [String(r.id), r]));
+  const result = { added: 0, removed: 0 };
+  for (const [id, e] of Object.entries(reg)) {
+    const r = byId.get(String(id));
+    if (!r) {
+      delete reg[id]; // Rezept gelöscht (z. B. verworfener Entwurf)
+      continue;
+    }
+    if (isDraft(r.name)) continue;
+    const path = imagePath(r.image);
+    if (!r.image || (e.image && e.image !== path)) {
+      delete reg[id]; // Bild entfernt oder durch ein anderes ersetzt
+      if (kwNames(r).includes(AI_KW)) (await setAiKeyword(r, false, store), result.removed++);
+      continue;
+    }
+    e.image ||= path;
+    if (!kwNames(r).includes(AI_KW)) (await setAiKeyword(r, true, store), result.added++);
+  }
+  saveStore(store);
+  return result;
+}
+
+/** Für /rezept: wie das Bild entstanden ist (oder null) */
+export function aiImageInfo(id) {
+  const e = loadStore().ai_images?.[id];
+  return e ? { ...e, oldStyle: e.style !== styleId() } : null;
+}
+
+/**
+ * Rezepte (ohne Entwürfe) für /bild-alle, nach Name sortiert.
+ * mode: "all" = alle · "missing" = ohne KI-Bild · "old" = KI-Bilder in einem älteren Stil (oder unbekanntem Stil)
+ */
+export async function allRecipeIds(mode = "all") {
+  const reg = loadStore().ai_images || {};
+  const current = styleId();
+  return (await all("/api/recipe/"))
     .filter((r) => !isDraft(r.name))
+    .filter((r) => {
+      const ai = kwNames(r).includes(AI_KW) || Boolean(reg[r.id]);
+      if (mode === "missing") return !ai;
+      if (mode === "old") return ai && reg[r.id]?.style !== current;
+      return true;
+    })
     .sort((a, b) => a.name.localeCompare(b.name, "de"))
     .map((r) => ({ id: r.id, name: r.name }));
+}
 
 /** Für /bild-neu: Rezept per ID, exaktem Namen oder eindeutigem Suchtreffer. */
 export async function resolveRecipe(q) {
@@ -388,7 +469,7 @@ export function validate(d, ctx) {
     });
   });
   const known = new Set(ctx.keywords.map((k) => k.name));
-  const newKw = (d.keywords || []).filter((k) => !known.has(k) && !STATUS_KW.includes(k));
+  const newKw = (d.keywords || []).filter((k) => !known.has(k) && !SYSTEM_KW.includes(k));
   const maxNew = lang() === "en" ? 5 : 2;
   if (newKw.length > maxNew) errors.push(`Höchstens ${maxNew} neue Schlagwörter, du hast: ${newKw.join(", ")}`);
   if (uniq(newFoods).length) warnings.push(`${L("Neue Lebensmittel", "New foods")}: ${uniq(newFoods).join(", ")}`);
@@ -436,8 +517,10 @@ export async function propose() {
 
   const store = loadStore();
   const kind = job?.kind === "revise" ? "revise" : d.original_id ? "quality" : "import";
-  const keywords = uniq([...d.keywords.filter((k) => !STATUS_KW.includes(k)), KW.open]);
+  const keywords = uniq([...d.keywords.filter((k) => !SYSTEM_KW.includes(k)), KW.open]);
   const payload = toTandoor(d, { name: draftPrefix() + d.name.trim(), keywords, privateRecipe: true });
+  // Merkmal ki-bild bleibt erhalten, wenn Entwurf bzw. Original es schon tragen (der Agent selbst vergibt es nie)
+  const keepAiKw = (names) => names.includes(AI_KW) && payload.keywords.push({ name: AI_KW });
   let p;
   let before = null;
 
@@ -445,6 +528,7 @@ export async function propose() {
     p = store.proposals[job.proposal];
     if (!p || p.status !== "open") return { ok: false, errors: ["Der Vorschlag ist nicht mehr offen"] };
     before = simplify(await getRecipe(p.draft_id));
+    keepAiKw(before.keywords);
     if (DRY) return { ok: true, dry: true, payload, warnings, diff: diff(before, d) };
     await api("PATCH", `/api/recipe/${p.draft_id}/`, payload);
   } else {
@@ -454,6 +538,7 @@ export async function propose() {
       if (isDraft(orig.name)) return { ok: false, errors: ["original_id ist selbst ein Entwurf"] };
       if (Object.values(store.proposals).some((x) => x.status === "open" && x.original_id === orig.id)) return { ok: false, errors: ["Für dieses Rezept gibt es schon einen offenen Vorschlag"] };
       before = simplify(orig);
+      keepAiKw(kwNames(orig));
     } else {
       const dup = (await search(d.name.trim())).filter((r) => r.name.toLowerCase() === d.name.trim().toLowerCase());
       if (dup.length) warnings.push(`${L("Gibt es schon", "Already exists")}: ${dup.map((r) => r.name).join(", ")}`);
@@ -484,6 +569,10 @@ export async function propose() {
           mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
           p.generated_image = join(REZEPTE, "bilder", `${id}.${imageType(jpg).ext}`);
           writeFileSync(p.generated_image, jpg);
+          p.generated_info = lastImageInfo();
+          // Neues Rezept: der Entwurf wird später selbst zum Rezept → gleich als KI-Bild markieren.
+          // Verbesserungsvorschlag: erst beim Übernehmen, wenn das Bild aufs Original kommt.
+          if (kind === "import") await markAiImage(draft.id, p.generated_info, store).catch((e) => warnings.push(`ki-bild: ${e.message.slice(0, 80)}`));
           d.changes = [...d.changes, `${L("Foto mit KI erzeugt", "Photo created with AI")} · ${await lastImageNote()}`];
         } catch (e) {
           warnings.push(`${L("Kein Bild erzeugt", "No picture created")}: ${e.message.slice(0, 120)}`);
@@ -576,11 +665,15 @@ export async function applyProposal(id, user) {
       saveStore(store);
       throw new Error(L(`Nach dem Speichern weicht das Rezept vom Entwurf ab (${left.lines.slice(0, 3).join("; ")}). Entwurf bleibt, Sicherung liegt in daten/rezepte/sicherungen.`, `After saving, the recipe differs from the draft (${left.lines.slice(0, 3).join("; ")}). The draft stays, a backup is in daten/rezepte/sicherungen.`));
     }
-    // Erzeugtes Foto nur übernehmen, wenn das Original noch keins hat
-    if (p.generated_image && !orig.image && existsSync(p.generated_image)) await uploadImage(orig.id, readFileSync(p.generated_image), String(orig.id));
+    // Erzeugtes Foto nur übernehmen, wenn das Original noch keins hat – dann auch als KI-Bild markieren
+    let updated = after.updated_at;
+    if (p.generated_image && !orig.image && existsSync(p.generated_image)) {
+      await uploadImage(orig.id, readFileSync(p.generated_image), String(orig.id));
+      updated = await markAiImage(orig.id, p.generated_info || { provider: "?", model: "?", style: "?" }, store);
+    }
     await deleteDraft(p);
     target = orig.id;
-    store.checked[target] = after.updated_at;
+    store.checked[target] = updated;
   }
   dropImage(p);
   Object.assign(p, { status: "applied", decided_by: user, decided: new Date().toISOString(), recipe_id: target });

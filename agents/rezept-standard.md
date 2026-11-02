@@ -36,4 +36,4 @@ Vorhandene nehmen (siehe `context`). Jedes Rezept bekommt:
 - **Art:** z. B. Hauptgericht, Vorspeise, Salat, Suppe, Soße, Dip, Dessert, Süßspeise, Kuchen, Torte, Blechkuchen, Gebäck, Plätzchen, Backen, Getränk
 - **Hauptzutaten:** 1–3, z. B. Kartoffeln, Hackfleisch, Sahne, Zwiebel
 - „Nährwerte geschätzt“ bleibt, wenn es schon da war.
-Status-Schlagwörter (geprüft, vorschlag-offen, nicht-bearbeiten) setzt das Werkzeug selbst.
+Status-Schlagwörter (geprüft, vorschlag-offen, nicht-bearbeiten) und ki-bild setzt das Werkzeug selbst – nie selbst vergeben.

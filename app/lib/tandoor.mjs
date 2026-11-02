@@ -10,6 +10,10 @@ export const recipeUrl = (id) => `${base()}/recipe/${id}`;
 // Status-Schlagwörter und Hausstil
 export const KW = { checked: "geprüft", open: "vorschlag-offen", skip: "nicht-bearbeiten" };
 export const STATUS_KW = Object.values(KW);
+// Merkmal „Bild mit KI erzeugt“ – setzt und entfernt nur das Werkzeug (wie die Status-Schlagwörter, bleibt deutsch)
+export const AI_KW = "ki-bild";
+// Schlagwörter, die der Agent nicht selbst vergibt und die nicht in der Auswahl für ihn stehen
+export const SYSTEM_KW = [...STATUS_KW, AI_KW];
 // Entwürfe tragen den Präfix in der eingestellten Sprache; erkannt werden beide
 export const DRAFT_PREFIXES = ["⏳ Entwurf: ", "⏳ Draft: "];
 export const DRAFT_PREFIX = DRAFT_PREFIXES[0];

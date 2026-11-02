@@ -16,7 +16,7 @@ Nothing is changed in Tandoor without you: every import and every improvement fi
 
 **AI photos:** Google Gemini "Nano Banana" (very realistic, paid), Cloudflare Workers AI (free) or OpenAI; if Google or OpenAI fails, Cloudflare steps in.
 
-**Uniform picture style:** all AI photos use the same style – table, light, angle and tableware are defined in [`agents/bild-stil.md`](agents/bild-stil.md). New recipes always get an AI photo in this style, even if the source has its own photo; the agent only describes what the dish looks like (based on the source photo or the video stills). Change the style in that file (applies from the next picture, via GitHub without restart); `/all-images` brings all existing recipes to the style. `BILD_EINHEITLICH=aus` uses the source photo again.
+**Uniform picture style:** all AI photos use the same style – table, light, angle and tableware are defined in [`agents/bild-stil.md`](agents/bild-stil.md). New recipes always get an AI photo in this style, even if the source has its own photo; the agent only describes what the dish looks like (based on the source photo or the video stills). Change the style in that file (applies from the next picture, via GitHub without restart); `/all-images` brings all existing recipes to the style. `BILD_EINHEITLICH=aus` uses the source photo again. Every AI picture gets the keyword **`ki-bild`** in Tandoor (for filtering); internally the agent remembers model, date and style. If you replace an AI picture in Tandoor with your own photo, the keyword disappears with the next daily check.
 
 ## Setup with Portainer
 
@@ -68,7 +68,7 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | `/recipe <name>` (`/rezept`) | Search a recipe in Tandoor, with status |
 | `/no-image [count \| name]` (`/ohne-bild`) | Recipes without a picture, each as its own message in the channel with a **🎨 Create picture** button (AI photo straight into Tandoor, then **🔄 Create another picture**). Default 5; recipes already shown come back after 7 days, with a name it searches specifically. Own photos are never replaced. |
 | `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |
-| `/all-images` (`/bild-alle`) | Recreate all recipe pictures with Google. Asks twice (with count and estimated cost), only the person who asked can confirm. Runs in the background with progress and a **⏹️ Pause** button, continues after a restart, pauses after 3 errors in a row (e.g. Google quota). |
+| `/all-images` (`/bild-alle`) | Recreate recipe pictures with Google: **all**, **only without AI picture** (own photos, recipes without a picture) or **only old style** (AI pictures made before a change to `agents/bild-stil.md`). Asks twice (with count and estimated cost), only the person who asked can confirm. Runs in the background with progress and a **⏹️ Pause** button, continues after a restart, pauses after 3 errors in a row (e.g. Google quota). |
 | `/check [count]` (`/pruefen`) | Start the quality check now; with a count it may check that many recipes on top of today's amount |
 | `/per-day [count]` (`/pro-tag`) | Show or change recipes per day (like in the web UI) |
 | `/neurons` (`/neuronen`) | Cloudflare neurons left today for AI photos |
