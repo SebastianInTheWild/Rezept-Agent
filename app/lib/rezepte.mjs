@@ -244,7 +244,10 @@ export async function postWithoutImage(recipes, channel = CHANNEL()) {
 // Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
 async function backupImage(r) {
   const url = /^https?:/.test(r.image) ? r.image : base() + r.image;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TANDOOR_TOKEN}` } });
+  // Erst ohne Token: Tandoor liefert Bilder oft über signierte S3-Adressen, und S3 lehnt einen zusätzlichen
+  // Authorization-Header mit HTTP 400 ab. Den Token nur mitschicken, wenn der Server ihn verlangt (401/403).
+  let res = await fetch(url);
+  if (res.status === 401 || res.status === 403) res = await fetch(url, { headers: { Authorization: `Bearer ${process.env.TANDOOR_TOKEN}` } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (!buf.length) throw new Error("leer");
