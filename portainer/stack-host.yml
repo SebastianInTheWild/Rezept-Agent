@@ -52,6 +52,12 @@ services:
       # an (Standard): neue Rezepte bekommen immer ein KI-Foto im Stil aus agents/bild-stil.md; aus = Foto der Quelle nehmen
       BILD_EINHEITLICH: ${BILD_EINHEITLICH:-}
       WEB_PASSWORT: ${WEB_PASSWORT:-}
+      # Tägliche Sicherung aller Rezepte in ein privates GitHub-Repo (Uhrzeit in zeitplan.conf: rezept-sicherung = 03:30)
+      BACKUP_REPO: ${BACKUP_REPO:-}
+      BACKUP_TOKEN: ${BACKUP_TOKEN:-}
+      BACKUP_BRANCH: ${BACKUP_BRANCH:-}
+      # Läuft ein Agent ins Claude-Limit, wird er alle N Minuten erneut gestartet (höchstens 24 Stunden lang)
+      CLAUDE_WIEDERHOLEN_MIN: ${CLAUDE_WIEDERHOLEN_MIN:-30}
       # agents/ alle N Minuten aus GitHub holen (neue Agenten ohne Neustart), „aus“ = nie
       AGENTS_SYNC: ${AGENTS_SYNC:-10}
       TZ: ${TZ:-Europe/Berlin}

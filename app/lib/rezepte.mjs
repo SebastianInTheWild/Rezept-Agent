@@ -377,23 +377,29 @@ export function backupPath(file) {
   return path;
 }
 
-/** Alle Sicherungen, nach Rezept gruppiert (neueste zuerst), mit Rezeptnamen aus Tandoor. */
-export async function listBackups() {
+/**
+ * Alle Sicherungen, nach Rezept gruppiert (neueste zuerst), mit Rezeptnamen aus Tandoor.
+ * remote: Dateinamen, die in der GitHub-Sicherung liegen – fehlen sie lokal (nach 180 Tagen aufgeräumt), kommen sie mit remote: true dazu.
+ */
+export async function listBackups({ remote = [] } = {}) {
   const dir = BACKUPS();
-  const files = existsSync(dir) ? readdirSync(dir) : [];
+  const localFiles = existsSync(dir) ? readdirSync(dir) : [];
+  const files = [...localFiles, ...remote.filter((f) => !localFiles.includes(f))];
+  const inRepo = new Set(remote);
   const recipes = new Map((await all("/api/recipe/").catch(() => [])).map((r) => [String(r.id), r]));
   const groups = new Map();
   const aiReg = loadStore().ai_images || {};
   for (const file of files) {
     const m = BACKUP_FILE.exec(file);
     if (!m) continue;
-    const st = statSync(join(dir, file));
+    const isLocal = localFiles.includes(file);
+    const st = isLocal ? statSync(join(dir, file)) : { size: null };
     const at = backupTime(m[3]);
     const id = m[1];
     const r = recipes.get(id);
     if (!groups.has(id))
       groups.set(id, { id: Number(id), name: r?.name || null, url: recipeUrl(id), exists: Boolean(r), has_image: Boolean(r?.image), ai: Boolean(aiReg[id]), images: [], recipes: [] });
-    const entry = { file, at, size: st.size, expires: new Date(Date.parse(at) + KEEP_DAYS * 86_400_000).toISOString() };
+    const entry = { file, at, size: st.size, local: isLocal, github: inRepo.has(file), expires: isLocal ? new Date(Date.parse(at) + KEEP_DAYS * 86_400_000).toISOString() : null };
     (m[4] === "json" ? groups.get(id).recipes : groups.get(id).images).push(entry);
   }
   const list = [...groups.values()];

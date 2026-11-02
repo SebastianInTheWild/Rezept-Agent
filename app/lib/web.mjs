@@ -15,6 +15,7 @@ import { AGENTS_DIR, hasStartRequest, loadAgent, readStatus, takeStartRequest } 
 import { perDay, setPerDay, PER_DAY_MAX } from "./rezepte.mjs";
 import { envOverview, setEnvValues, FIELDS } from "./umgebung.mjs";
 import { L, lang } from "./i18n.mjs";
+import { BACKUP_ID, BACKUP_DEFAULT, backupReady, backupRunning, backupStatus, repoUrl, syncBackup, repoOverview, fetchBackupFromRepo, readBackupFromRepo, restoreDeleted, readRepoFile } from "./github-sicherung.mjs";
 
 const SCHEDULE_FILE = process.env.SCHEDULE_FILE || join(AGENTS_DIR, "..", "zeitplan.conf");
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -178,6 +179,26 @@ function overview() {
     manual: true,
     running: statsSending,
   });
+  // Sonderfall: tägliche GitHub-Sicherung (kein Agent, nur eine Uhrzeit)
+  const bakRaw = plan[BACKUP_ID] ?? BACKUP_DEFAULT;
+  const bakSlots = slotsOf(bakRaw);
+  const bakLast = backupStatus();
+  items.push({
+    id: BACKUP_ID,
+    kind: "sicherung",
+    name: L("GitHub-Sicherung", "GitHub backup"),
+    description: backupReady()
+      ? L(`Sichert alle Rezepte mit Bild, gelöschte Rezepte und die Bild-Sicherungen täglich in ${repoUrl()}. Kein Agent.`, `Backs up all recipes with pictures, deleted recipes and the picture backups to ${repoUrl()} every day. Not an agent.`)
+      : L("Noch nicht eingerichtet: unter Einstellungen → GitHub-Sicherung das private Repo und einen Token eintragen.", "Not set up yet: enter the private repo and a token under Settings → GitHub backup."),
+    schedule: bakSlots,
+    enabled: bakSlots.length > 0,
+    source: BACKUP_ID in plan ? "zeitplan.conf" : "Standard",
+    default: { schedule: [BACKUP_DEFAULT], enabled: true },
+    next: backupReady() ? nextRunText({ schedule: bakSlots, enabled: bakSlots.length > 0 }) : "–",
+    manual: backupReady(),
+    running: backupRunning(),
+    last: bakLast ? { at: bakLast.at, result: bakLast.result, by: "", note: bakLast.note || (bakLast.files ? L(`${bakLast.files} Dateien`, `${bakLast.files} files`) : L("keine Änderungen", "no changes")) } : null,
+  });
   return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", lang: lang(), items };
 }
 
@@ -193,24 +214,57 @@ const send = (res, code, body, type = "application/json; charset=utf-8") => {
 const MIME = { jpg: "image/jpeg", png: "image/png", webp: "image/webp", json: "application/json; charset=utf-8" };
 let restoring = false;
 
+// GitHub-Teil der Sicherungen kurz zwischenspeichern (eine Abfrage pro Minute reicht für die Ansicht)
+let repoCache = { at: 0, data: null };
+async function repoData(fresh = false) {
+  if (!backupReady()) return null;
+  if (!fresh && repoCache.data && Date.now() - repoCache.at < 60_000) return repoCache.data;
+  try {
+    repoCache = { at: Date.now(), data: await repoOverview() };
+  } catch (e) {
+    repoCache = { at: Date.now(), data: { repo: repoUrl(), error: e.message, deleted: [], backups: [] } };
+  }
+  return repoCache.data;
+}
+
 async function backupsApi(req, res, url) {
   const { listBackups, backupPath, currentRecipeImage, restoreBackup, deleteBackup } = await import("./rezepte.mjs");
   const json = () => /^application\/json/.test(req.headers["content-type"] || "");
-  if (req.method === "GET" && url.pathname === "/api/sicherungen") return send(res, 200, { lang: lang(), keep_days: 180, items: await listBackups() });
+  const state = async (fresh) => {
+    const gh = await repoData(fresh);
+    return { lang: lang(), keep_days: 180, github: gh ? { repo: gh.repo, error: gh.error || null, deleted: gh.deleted, last: backupStatus() } : null, items: await listBackups({ remote: gh?.backups || [] }) };
+  };
+  // Lokal schon aufgeräumt? Dann aus der GitHub-Sicherung holen
+  const localOrRepo = async (name) => {
+    try {
+      return backupPath(name);
+    } catch (e) {
+      if (!backupReady()) throw e;
+      await fetchBackupFromRepo(name);
+      return backupPath(name);
+    }
+  };
+  const download = (name, buf, type) => {
+    const headers = { "Content-Type": type, "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" };
+    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${name}"`;
+    res.writeHead(200, headers);
+    res.end(buf);
+  };
+
+  if (req.method === "GET" && url.pathname === "/api/sicherungen") return send(res, 200, await state(url.searchParams.has("neu")));
 
   const file = /^\/api\/sicherungen\/datei\/([\w.-]+)$/.exec(url.pathname);
   if (req.method === "GET" && file) {
-    let path;
+    // Lokal oder (nach dem Aufräumen) direkt aus GitHub – ohne es wieder lokal abzulegen
+    let buf;
     try {
-      path = backupPath(file[1]);
+      buf = readFileSync(backupPath(file[1]));
     } catch (e) {
-      return send(res, 404, { error: e.message });
+      if (!backupReady()) return send(res, 404, { error: e.message });
+      buf = await readBackupFromRepo(file[1]).catch(() => null);
+      if (!buf) return send(res, 404, { error: e.message });
     }
-    const ext = file[1].split(".").pop();
-    const headers = { "Content-Type": MIME[ext] || "application/octet-stream", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" };
-    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${file[1]}"`;
-    res.writeHead(200, headers);
-    return res.end(readFileSync(path));
+    return download(file[1], buf, MIME[file[1].split(".").pop()] || "application/octet-stream");
   }
 
   const current = /^\/api\/sicherungen\/aktuell\/(\d+)$/.exec(url.pathname);
@@ -221,15 +275,46 @@ async function backupsApi(req, res, url) {
     return res.end(img.buf);
   }
 
+  // Gelöschte Rezepte aus der GitHub-Sicherung: Bild, JSON, wiederherstellen
+  const gone = /^\/api\/sicherungen\/geloescht\/(\d+)\/(bild|rezept)$/.exec(url.pathname);
+  if (req.method === "GET" && gone) {
+    const gh = await repoData();
+    const entry = gh?.deleted.find((d) => String(d.id) === gone[1]);
+    if (!entry) return send(res, 404, { error: L("Nicht gefunden", "Not found") });
+    try {
+      if (gone[2] === "rezept") return download(`rezept-${gone[1]}.json`, await readRepoFile(`geloescht/${gone[1]}/rezept.json`), MIME.json);
+      if (!entry.image) return send(res, 404, { error: L("Kein Bild", "No picture") });
+      return download(entry.image.split("/").pop(), await readRepoFile(entry.image), MIME[entry.image.split(".").pop()] || "application/octet-stream");
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
+  }
+  if (req.method === "POST" && url.pathname === "/api/sicherungen/geloescht/wiederherstellen") {
+    if (!json()) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
+    if (restoring) return send(res, 409, { error: L("Es wird gerade schon etwas wiederhergestellt", "Something is already being restored") });
+    restoring = true;
+    try {
+      const { id } = await body(req);
+      const r = await restoreDeleted(id);
+      console.log(`[web] Gelöschtes Rezept ${id} wiederhergestellt → ${r.id} (${r.name})`);
+      return send(res, 200, { ...r, ...(await state(true)) });
+    } catch (e) {
+      return send(res, 400, { error: e.message });
+    } finally {
+      restoring = false;
+    }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/sicherungen/wiederherstellen") {
     if (!json()) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
     if (restoring) return send(res, 409, { error: L("Es wird gerade schon ein Bild wiederhergestellt", "A picture is already being restored") });
     restoring = true;
     try {
       const { file: name } = await body(req);
+      await localOrRepo(name);
       const r = await restoreBackup(name);
       console.log(`[web] Bild ${name} wiederhergestellt → Rezept ${r.id}${r.backup ? ` (vorheriges Bild gesichert: ${r.backup})` : ""}`);
-      return send(res, 200, { ...r, items: await listBackups() });
+      return send(res, 200, { ...r, ...(await state()) });
     } catch (e) {
       return send(res, 400, { error: e.message });
     } finally {
@@ -245,12 +330,11 @@ async function backupsApi(req, res, url) {
     } catch (e) {
       return send(res, 400, { error: e.message });
     }
-    console.log(`[web] Sicherung ${name} gelöscht`);
-    return send(res, 200, { ok: true, items: await listBackups() });
+    console.log(`[web] Sicherung ${name} gelöscht (nur lokal)`);
+    return send(res, 200, { ok: true, ...(await state()) });
   }
   return send(res, 404, { error: L("Nicht gefunden", "Not found") });
 }
-
 function authorized(req) {
   const pw = process.env.WEB_PASSWORT;
   if (!pw) return true;
@@ -289,7 +373,8 @@ export function startWeb() {
         // Schutz gegen Formular-Angriffe von fremden Seiten: nur JSON von dieser Seite
         if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const id = m[1];
-        const isStats = id === STATS_ID;
+        // Statistik und GitHub-Sicherung: eine feste Uhrzeit, keine Abstände
+        const isStats = id === STATS_ID || id === BACKUP_ID;
         if (!isStats && !agentIds().includes(id)) return send(res, 404, { error: L(`Agent „${id}“ gibt es nicht`, `Agent “${id}” does not exist`) });
         const { mode, slots = [] } = await body(req);
         if (mode === "default") {
@@ -357,6 +442,14 @@ export function startWeb() {
         if (id === STATS_ID) {
           if (statsSending) return send(res, 409, { error: L("Die Statistik wird gerade gesendet", "The statistics are being sent right now") });
           await sendStats();
+          return send(res, 200, overview());
+        }
+        if (id === BACKUP_ID) {
+          if (!backupReady()) return send(res, 400, { error: L("GitHub-Sicherung ist nicht eingerichtet", "GitHub backup is not set up") });
+          if (backupRunning()) return send(res, 409, { error: L("Die Sicherung läuft gerade schon", "The backup is already running") });
+          // Kann einige Minuten dauern – im Hintergrund, die Oberfläche zeigt „läuft“
+          syncBackup().catch((e) => console.error(`[sicherung] ${e.message}`));
+          console.log("[web] GitHub-Sicherung von Hand gestartet");
           return send(res, 200, overview());
         }
         if (!agentIds().includes(id)) return send(res, 404, { error: L(`Agent „${id}“ gibt es nicht`, `Agent “${id}” does not exist`) });

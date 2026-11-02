@@ -160,7 +160,7 @@ const EN = {
   "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).": "The agent no longer runs on a schedule – only by hand (Start now).",
   "Abbrechen": "Cancel", "ohne Zeitplan": "no schedule", "aus": "off", "Standard verwenden ({def})": "Use default ({def})",
   "läuft gerade": "running", "noch nie gelaufen": "never run", "pausiert – nur von Hand": "paused – manual only", "· aus zeitplan.conf": "· from zeitplan.conf", "· Standard aus agent.json": "· default from agent.json",
-  "Nächster Lauf:": "Next run:", "Claude-Limit – nächster Versuch:": "Claude limit – next try:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
+  "Nächster Lauf:": "Next run:", "Jetzt sichern": "Back up now", "Die Sicherung läuft nur noch von Hand (Jetzt sichern).": "The backup only runs by hand now (Back up now).", "Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.": "Back up all recipes to GitHub now? The first time takes a few minutes.", "GitHub-Sicherung läuft …": "GitHub backup running …", "Claude-Limit – nächster Versuch:": "Claude limit – next try:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
   "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.": "Starts via Slack (links and photos in the recipe channel) – needs no schedule.",
   "Ändern": "Edit", "Jetzt senden": "Send now", "Läuft …": "Running …", "Startet gleich …": "Starting soon …", "Jetzt starten": "Start now",
   "Keine Agenten gefunden.": "No agents found.", "Datei: {file} · Zeitzone: {tz}": "File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
@@ -188,6 +188,11 @@ const EN = {
   "Rezept vor Verbesserung:": "Recipe before improvement:", "Rezept suchen …": "Search recipe …", "Nichts gefunden.": "Nothing found.",
   "Noch keine Sicherungen. Sie entstehen bei /bild-neu, /bild-alle und beim Übernehmen von Verbesserungsvorschlägen.": "No backups yet. They are created by /new-image, /all-images and when improvements are applied.",
   "{r} Rezepte · {n} gesicherte Bilder": "{r} recipes · {n} backed-up pictures",
+  "auch in GitHub": "also in GitHub", "nur noch in GitHub": "only in GitHub now", "Diese Sicherung hier löschen? In GitHub bleibt sie erhalten.": "Delete this backup here? It stays in GitHub.",
+  "Bild- und Rezept-Sicherungen": "Picture and recipe backups", "GitHub-Sicherung": "GitHub backup", "Repo: ": "Repo: ", "letzter Abgleich": "last sync", "In Tandoor gelöschte Rezepte": "Recipes deleted in Tandoor",
+  "Noch nicht eingerichtet. Unter Einstellungen → GitHub-Sicherung ein privates Repo und einen Token eintragen – dann landen alle Rezepte, gelöschte Rezepte und diese Sicherungen täglich dort.": "Not set up yet. Enter a private repo and a token under Settings → GitHub backup – then all recipes, deleted recipes and these backups go there every day.",
+  "Keine – der tägliche Abgleich legt hier ab, was in Tandoor gelöscht wird.": "None – the daily sync puts here whatever gets deleted in Tandoor.",
+  "gelöscht am {date}": "deleted on {date}", "„{name}“ wieder in Tandoor anlegen (mit Bild)?": "Create “{name}” in Tandoor again (with picture)?", "Wird angelegt …": "Creating …", "{name}: wieder in Tandoor": "{name}: back in Tandoor",
 };
 const t = (s, v = {}) => (LANG === "en" && EN[s] ? EN[s] : s).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 const LOCALE = () => (LANG === "en" ? "en-GB" : "de-DE");
@@ -277,14 +282,14 @@ async function save(item) {
 }
 async function startNow(item, button) {
   const isStats = item.kind === "statistik";
-  if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : t("{name} jetzt starten?", { name: item.name }))) return;
+  const isBak = item.kind === "sicherung"; if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : isBak ? t("Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.") : t("{name} jetzt starten?", { name: item.name }))) return;
   if (isStats && button) { button.disabled = true; button.textContent = t("Wird gesendet …"); }
   try {
     const r = await fetch(`api/run/${encodeURIComponent(item.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; render();
-    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
+    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : isBak ? t("GitHub-Sicherung läuft …") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
   } catch (err) { toast(err.message, true); render(); }
 }
 // Wie viele Rezepte der Qualitäts-Agent pro Tag prüft
@@ -331,7 +336,7 @@ function editor(item) {
   const e = editing;
   const box = el("div", "editor");
   const seg = el("div", "seg");
-  const modes = item.kind === "statistik" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
+  const modes = item.kind !== "agent" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
   for (const [m, label] of modes) {
     const b = el("button", null, t(label)); b.type = "button"; b.setAttribute("aria-pressed", String(e.mode === m));
     b.onclick = () => { e.mode = m; e.error = ""; render(); };
@@ -354,7 +359,7 @@ function editor(item) {
       if (e.slots.length > 1) { const x = el("button", "x", "×"); x.type = "button"; x.title = t("Zeit entfernen"); x.onclick = () => { e.slots.splice(i, 1); render(); }; row.append(x); }
       box.append(row);
     });
-    if (item.kind !== "statistik") {
+    if (item.kind === "agent") {
       const add = el("button", "link", t("+ Weitere Zeit")); add.type = "button";
       add.onclick = () => { e.slots.push({ days: new Set(DAYS), time: "12:00" }); render(); };
       box.append(add);
@@ -368,7 +373,7 @@ function editor(item) {
     row.append(n, el("span", null, t("Minuten")));
     box.append(row);
   } else {
-    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
+    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : item.kind === "sicherung" ? t("Die Sicherung läuft nur noch von Hand (Jetzt sichern).") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
   }
   if (e.error) box.append(el("p", "err", e.error));
 
@@ -393,7 +398,7 @@ function card(item) {
   left.append(el("h2", "title", item.name));
   if (item.description) left.append(el("p", "desc", item.description));
   head.append(left);
-  if (item.kind === "agent") {
+  if (item.kind === "agent" || item.kind === "sicherung") {
     const [text, cls] = item.running ? ["läuft gerade", "run"] : item.last ? RESULT[item.last.result] || [item.last.result, "idle"] : ["noch nie gelaufen", "idle"];
     head.append(el("span", "badge " + cls, t(text)));
   }
@@ -402,7 +407,7 @@ function card(item) {
   if (item.error) { c.append(el("p", "err", item.error)); return c; }
 
   const chips = el("div", "chips");
-  if (!item.enabled) chips.append(el("span", "chip", item.kind === "statistik" ? t("aus") : t("pausiert – nur von Hand")));
+  if (!item.enabled) chips.append(el("span", "chip", item.kind !== "agent" ? t("aus") : t("pausiert – nur von Hand")));
   else if (!item.schedule.length) chips.append(el("span", "chip", t("ohne Zeitplan")));
   else item.schedule.forEach((s) => chips.append(el("span", "chip", describe(s))));
   chips.append(el("span", "source", item.source === "zeitplan.conf" ? t("· aus zeitplan.conf") : item.source === "agent.json" ? t("· Standard aus agent.json") : `· ${t(item.source)}`));
@@ -411,6 +416,7 @@ function card(item) {
   const meta = el("div", "meta");
   const add = (label, value) => { if (!value) return; const s = el("span"); s.append(el("b", null, t(label) + " "), document.createTextNode(value)); meta.append(s); };
   add("Nächster Lauf:", item.next);
+  if (item.kind === "sicherung" && item.last) add("Zuletzt:", `${fmt(item.last.at)} · ${item.last.note}`);
   if (item.kind === "agent") {
     if (item.running) add("Seit:", fmt(item.since));
     if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
@@ -428,6 +434,10 @@ function card(item) {
     const row = el("div", "actions"); row.append(b);
     if (item.kind === "statistik") {
       const go = el("button", "btn", item.running ? t("Wird gesendet …") : t("Jetzt senden")); go.type = "button";
+      go.disabled = item.running; go.onclick = () => startNow(item, go);
+      row.append(go);
+    } else if (item.kind === "sicherung" && item.manual) {
+      const go = el("button", "btn", item.running ? t("Läuft …") : t("Jetzt sichern")); go.type = "button";
       go.disabled = item.running; go.onclick = () => startNow(item, go);
       row.append(go);
     } else if (item.kind === "agent" && item.manual) {
@@ -569,7 +579,7 @@ async function bakAction(path, file, okMsg) {
     const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
-    bak.items = j.items; renderBak(); toast(okMsg);
+    Object.assign(bak, { items: j.items, github: j.github ?? bak.github }); renderBak(); toast(okMsg);
   } catch (err) { toast(err.message, true); }
 }
 function shot(src, label, cls) {
@@ -602,7 +612,7 @@ function bakCard(g) {
     if (g.exists) grid.append(shot(g.has_image ? `api/sicherungen/aktuell/${g.id}` : null, t("aktuell"), "current"));
     for (const b of g.images) {
       const s = shot(fileUrl(b.file), fmt(b.at));
-      s.append(el("div", "info", t("{size} · bleibt bis {date}", { size: kb(b.size), date: dateOnly(b.expires) })));
+      s.append(el("div", "info", b.local ? t("{size} · bleibt bis {date}", { size: kb(b.size), date: dateOnly(b.expires) }) + (b.github ? ` · ${t("auch in GitHub")}` : "") : t("nur noch in GitHub")));
       const acts = el("div", "acts");
       const open = el("a", null, t("Öffnen")); open.href = fileUrl(b.file); open.target = "_blank"; open.rel = "noopener";
       const dl = el("a", null, t("Herunterladen")); dl.href = fileUrl(b.file, true);
@@ -616,9 +626,11 @@ function bakCard(g) {
         };
         acts.append(re);
       }
-      const del = el("button", "danger", t("Löschen")); del.type = "button";
-      del.onclick = () => { if (confirm(t("Diese Sicherung endgültig löschen?"))) bakAction("api/sicherungen/loeschen", b.file, t("Sicherung gelöscht")); };
-      acts.append(del);
+      if (b.local) {
+        const del = el("button", "danger", t("Löschen")); del.type = "button";
+        del.onclick = () => { if (confirm(b.github ? t("Diese Sicherung hier löschen? In GitHub bleibt sie erhalten.") : t("Diese Sicherung endgültig löschen?"))) bakAction("api/sicherungen/loeschen", b.file, t("Sicherung gelöscht")); };
+        acts.append(del);
+      }
       s.append(acts);
       grid.append(s);
     }
@@ -632,14 +644,61 @@ function bakCard(g) {
   }
   return c;
 }
+// GitHub-Sicherung: gelöschte Rezepte (wiederherstellbar), Stand des letzten Abgleichs
+function githubCard() {
+  const c = el("article", "card");
+  const g = bak.github;
+  const head = el("div", "head");
+  const left = el("div");
+  left.append(el("h2", "title", t("GitHub-Sicherung")));
+  if (!g) {
+    left.append(el("p", "desc", t("Noch nicht eingerichtet. Unter Einstellungen → GitHub-Sicherung ein privates Repo und einen Token eintragen – dann landen alle Rezepte, gelöschte Rezepte und diese Sicherungen täglich dort.")));
+    head.append(left); c.append(head); return c;
+  }
+  const link = el("a", null, g.repo.replace("https://github.com/", "")); link.href = g.repo; link.target = "_blank"; link.rel = "noopener";
+  const desc = el("p", "desc"); desc.append(document.createTextNode(t("Repo: ")), link);
+  if (g.last) desc.append(document.createTextNode(` · ${t("letzter Abgleich")}: ${fmt(g.last.at)}${g.last.result === "fehler" ? ` – ${t("fehlgeschlagen")}: ${g.last.note}` : ""}`));
+  left.append(desc); head.append(left);
+  if (g.error) c.append(head, el("p", "err", g.error));
+  else c.append(head);
+  const title = el("p", null); title.append(el("b", null, t("In Tandoor gelöschte Rezepte")));
+  c.append(title);
+  if (!g.deleted.length) { c.append(el("p", "hint", t("Keine – der tägliche Abgleich legt hier ab, was in Tandoor gelöscht wird."))); return c; }
+  const grid = el("div", "shots");
+  for (const d of g.deleted) {
+    const s = shot(d.image ? `api/sicherungen/geloescht/${d.id}/bild` : null, d.name);
+    s.append(el("div", "info", d.deleted ? t("gelöscht am {date}", { date: dateOnly(d.deleted) }) : ""));
+    const acts = el("div", "acts");
+    const re = el("button", null, t("Wiederherstellen")); re.type = "button";
+    re.onclick = async () => {
+      if (!confirm(t("„{name}“ wieder in Tandoor anlegen (mit Bild)?", { name: d.name }))) return;
+      re.disabled = true; re.textContent = t("Wird angelegt …");
+      try {
+        const r = await fetch("api/sicherungen/geloescht/wiederherstellen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: d.id }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        Object.assign(bak, { items: j.items, github: j.github }); renderBak();
+        toast(t("{name}: wieder in Tandoor", { name: d.name }));
+      } catch (err) { toast(err.message, true); re.disabled = false; re.textContent = t("Wiederherstellen"); }
+    };
+    const js = el("a", null, "JSON"); js.href = `api/sicherungen/geloescht/${d.id}/rezept?download`;
+    acts.append(re, js);
+    s.append(acts);
+    grid.append(s);
+  }
+  c.append(grid);
+  return c;
+}
+
 function renderBak() {
   const box = document.getElementById("bak");
-  const parts = [];
+  const parts = [githubCard()];
   const search = el("input", "field search"); search.type = "search"; search.placeholder = t("Rezept suchen …"); search.value = bakFilter;
   search.oninput = () => { bakFilter = search.value; const pos = search.selectionStart; renderBak(); const s = document.querySelector("#bak .search"); s.focus(); s.setSelectionRange(pos, pos); };
   parts.push(search);
   const q = bakFilter.trim().toLowerCase();
   const items = (bak?.items || []).filter((g) => !q || (g.name || "").toLowerCase().includes(q) || String(g.id) === q);
+  parts.push(el("h2", "title", t("Bild- und Rezept-Sicherungen")));
   if (!bak?.items?.length) parts.push(el("div", "empty", t("Noch keine Sicherungen. Sie entstehen bei /bild-neu, /bild-alle und beim Übernehmen von Verbesserungsvorschlägen.")));
   else if (!items.length) parts.push(el("div", "empty", t("Nichts gefunden.")));
   else {

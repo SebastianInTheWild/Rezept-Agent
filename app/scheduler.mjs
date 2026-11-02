@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry } from "./run-agent.mjs";
 import { startWeb, takeQueued } from "./lib/web.mjs";
 import { startSync } from "./lib/sync.mjs";
+import { startBackupSchedule } from "./lib/github-sicherung.mjs";
+import { post, slackReady } from "./lib/slack.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const RUNS_FILE = join(DATA_DIR, "runs.json");
@@ -160,6 +162,8 @@ async function loop() {
   startWeb();
   // agents/ aus GitHub nachladen (AGENTS_SYNC, Standard alle 10 min; „aus“ = nie)
   startSync();
+  // Rezepte und Sicherungen täglich in ein privates GitHub-Repo (BACKUP_REPO, BACKUP_TOKEN; zeitplan.conf: rezept-sicherung)
+  startBackupSchedule({ notify: (text) => (slackReady() && process.env.SLACK_CHANNEL ? post(process.env.SLACK_CHANNEL, text).catch(() => {}) : Promise.resolve()) });
   // Beim ersten Start keine alten Zeiten von heute nachholen
   const n0 = now();
   const runs = loadRuns();

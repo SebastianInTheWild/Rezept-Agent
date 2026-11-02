@@ -161,6 +161,66 @@ export function fakeSlack() {
   return s;
 }
 
+/**
+ * Nachgebautes GitHub-Repo (nur die Git-Data- und Contents-API, die die Sicherung benutzt).
+ * Startet leer wie ein frisch angelegtes Repo; files() liefert den aktuellen Stand (Pfad → Buffer).
+ */
+export function fakeGitHub(repo = "test/sicherung") {
+  const g = { blobs: new Map(), trees: new Map(), commits: new Map(), ref: null, commitsMade: [], blobPosts: 0 };
+  let n = 0;
+  const id = (p) => `${p}${(++n).toString(16).padStart(39, "0")}`;
+  const addBlob = (buf) => {
+    const sha = (globalThis.__blobSha || ((b) => b))(buf);
+    g.blobs.set(sha, buf);
+    return sha;
+  };
+  const treeFiles = (treeSha) => new Map(g.trees.get(treeSha) || []);
+  g.files = () => new Map([...treeFiles(g.commits.get(g.ref)?.tree)].map(([p, sha]) => [p, g.blobs.get(sha)]));
+  g.handle = async (url, init = {}) => {
+    const u = new URL(url);
+    const path = decodeURIComponent(u.pathname.replace(`/repos/${repo}`, ""));
+    const method = (init.method || "GET").toUpperCase();
+    const body = init.body ? JSON.parse(init.body) : null;
+    if (path === "/git/ref/heads/main") return g.ref ? json({ object: { sha: g.ref } }) : json({ message: "Git Repository is empty." }, 409);
+    if (path === "/contents/README.md" && method === "PUT") {
+      const blob = addBlob(Buffer.from(body.content, "base64"));
+      const tree = id("t");
+      g.trees.set(tree, [["README.md", blob]]);
+      const c = id("c");
+      g.commits.set(c, { tree, parents: [], message: body.message });
+      g.ref = c;
+      return json({ commit: { sha: c } }, 201);
+    }
+    let m;
+    if ((m = /^\/git\/commits\/(\w+)$/.exec(path))) return json({ sha: m[1], tree: { sha: g.commits.get(m[1]).tree } });
+    if ((m = /^\/git\/trees\/(\w+)$/.exec(path)) && method === "GET") return json({ sha: m[1], truncated: false, tree: [...treeFiles(m[1])].map(([p, sha]) => ({ path: p, sha, type: "blob", mode: "100644" })) });
+    if (path === "/git/blobs" && method === "POST") return g.blobPosts++, json({ sha: addBlob(Buffer.from(body.content, "base64")) }, 201);
+    if (path === "/git/trees" && method === "POST") {
+      const files = treeFiles(body.base_tree);
+      for (const e of body.tree) e.sha === null ? files.delete(e.path) : files.set(e.path, e.sha);
+      const t = id("t");
+      g.trees.set(t, [...files]);
+      return json({ sha: t }, 201);
+    }
+    if (path === "/git/commits" && method === "POST") {
+      const c = id("c");
+      g.commits.set(c, { tree: body.tree, parents: body.parents, message: body.message });
+      return json({ sha: c }, 201);
+    }
+    if (path === "/git/refs/heads/main" && method === "PATCH") {
+      g.ref = body.sha;
+      g.commitsMade.push(g.commits.get(body.sha).message);
+      return json({ object: { sha: body.sha } });
+    }
+    if ((m = /^\/contents\/(.+)$/.exec(path)) && method === "GET") {
+      const buf = g.files().get(m[1]);
+      return buf ? new Response(buf) : json({ message: "Not Found" }, 404);
+    }
+    return json({ message: `fake github: ${method} ${path}` }, 404);
+  };
+  return g;
+}
+
 /** fetch durch die nachgebauten Dienste leiten; unbekannte Adressen schlagen fehl (kein echtes Netz im Test). */
 export function installFetch(handlers) {
   const seen = [];
