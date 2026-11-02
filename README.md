@@ -14,7 +14,7 @@ A Docker container in which AI agents (Claude Code) look after the recipes in [T
 
 Nothing is changed in Tandoor without you: every import and every improvement first becomes a draft, and a person decides in Slack with **Apply / Discard / Leave as is**.
 
-**Language:** German or English – in the web UI under **Settings → General → Language** (or `SPRACHE=de|en`). The language applies to new recipes and improvement proposals (the quality agent gradually translates existing recipes when it checks them), to all Slack messages and buttons, and to the web UI. English has its own standard ([`agents/rezept-standard.en.md`](agents/rezept-standard.en.md)) with English unit names (`tbsp`, `tsp`, `piece` …). The Slack commands are `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/per-day`, `/neurons`, `/help`; the German names keep working. With `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` the bridge registers the English commands in Slack by itself. Status keywords in Tandoor (`geprüft`, `vorschlag-offen`, `nicht-bearbeiten`) and the logs stay German.
+**Language:** German or English – in the web UI under **Settings → General → Language** (or `SPRACHE=de|en`). The language applies to new recipes and improvement proposals (the quality agent gradually translates existing recipes when it checks them), to all Slack messages and buttons, and to the web UI. English has its own standard ([`agents/rezept-standard.en.md`](agents/rezept-standard.en.md)) with English unit names (`tbsp`, `tsp`, `piece` …). The Slack commands are `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/check-recipe`, `/per-day`, `/neurons`, `/help`; the German names keep working. With `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` the bridge registers the English commands in Slack by itself. Status keywords in Tandoor (`geprüft`, `vorschlag-offen`, `nicht-bearbeiten`) and the logs stay German.
 
 **AI photos:** Google Gemini "Nano Banana" (very realistic, paid), Cloudflare Workers AI (free) or OpenAI; if Google or OpenAI fails, Cloudflare steps in.
 
@@ -93,7 +93,7 @@ If an agent hits the Claude usage limit ("You've hit your limit"), it retries ev
 
 ### Slack commands
 
-Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-images` and `/per-day <number>` only work in the recipe channel. German names in brackets.
+Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-image`, `/all-images` and `/per-day <number>` only work in the recipe channel. German names in brackets.
 
 | Command | What it does |
 | --- | --- |
@@ -104,6 +104,7 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 | `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |
 | `/all-images` (`/bild-alle`) | Recreate recipe pictures with Google: **all**, **only without AI picture** (own photos, recipes without a picture) or **only old style** (AI pictures made before a change to `agents/bild-stil.md`). Asks twice (with count and estimated cost), only the person who asked can confirm. Runs in the background with progress and a **⏹️ Pause** button, continues after a restart, pauses after 3 errors in a row (e.g. Google quota). |
 | `/check [count]` (`/pruefen`) | Start the quality check now; with a count it may check that many recipes on top of today's amount |
+| `/check-recipe <name \| ID>` (`/pruefen-rezept`) | Check one recipe again right away – also if it was already checked, rejected or set to “leave as is”; does not count towards the daily amount |
 | `/per-day [count]` (`/pro-tag`) | Show or change recipes per day (like in the web UI) |
 | `/neurons` (`/neuronen`) | Cloudflare neurons left today for AI photos |
 | `/google` | Google usage this month: pictures, videos, estimated cost, today, last month and – with `GOOGLE_GUTHABEN` – remaining credit. A warning is posted once at 80 %. Estimated from the agent's own calls (Google doesn't expose the balance via the API key). |

@@ -136,6 +136,7 @@ const EN = {
     "/bild-neu": ["New AI picture from Google for one recipe", "<name | ID>"],
     "/bild-alle": ["Recreate all recipe pictures with Google (asks first)"],
     "/pruefen": ["Start the quality check now", "[count]"],
+    "/pruefen-rezept": ["Check one recipe again", "<name | ID>"],
     "/pro-tag": ["How many recipes are checked per day", "[count]"],
     "/wochenplan": ["Suggest a meal plan from your recipes", "[days] [wishes]"],
     "/was-kochen": ["Find recipes with these ingredients", "<ingredients>"],

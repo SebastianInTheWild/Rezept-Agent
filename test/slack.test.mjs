@@ -1,7 +1,7 @@
 // Slack-Brücke: Befehle (deutsch und englisch), Hilfe, Knöpfe an Vorschlägen
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setupEnv, APP, TANDOOR, installFetch, fakeTandoor, fakeSlack, fakeSocket, until, wait } from "./helpers.mjs";
 
@@ -64,7 +64,7 @@ test("/rezept sucht mit Status", async () => {
 
 test("/hilfe listet alle Befehle", async () => {
   const r = await command("/hilfe");
-  for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pro-tag", "/wochenplan", "/was-kochen", "/hilfe"]) assert.ok(r.includes(c), c);
+  for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pruefen-rezept", "/pro-tag", "/wochenplan", "/was-kochen", "/hilfe"]) assert.ok(r.includes(c), c);
 });
 
 test("/was-kochen findet Rezepte über Tandoor-Lebensmittel", async () => {
@@ -73,6 +73,16 @@ test("/was-kochen findet Rezepte über Tandoor-Lebensmittel", async () => {
   assert.match(r, /1 Rezepte\* mit Wirsing, Sahne/);
   assert.match(r, /⭐ <.*\|Rahmwirsing>/);
   assert.match(await command("/what-to-cook", "Einhorn"), /Keine dieser Zutaten|None of these/);
+});
+
+test("/pruefen-rezept merkt ein schon geprüftes Rezept vor und startet die Prüfung", async () => {
+  const r = await command("/pruefen-rezept", "Lasagne");
+  assert.match(r, /Lasagne.*wird in spätestens 30 Sekunden geprüft/);
+  const settings = JSON.parse(readFileSync(join(data, "rezepte", "einstellungen.json"), "utf8"));
+  assert.deepEqual(settings.einzeln.map((x) => x.id), [1]);
+  assert.ok(existsSync(join(data, "rezept-qualitaet", "start-anfrage.json")), "Start angefragt");
+  assert.match(await command("/check-recipe", "gibtsnicht"), /Kein Rezept|No recipe/);
+  assert.match(await command("/pruefen-rezept", "50"), /Kein Rezept|No recipe/, "Entwürfe nicht");
 });
 
 test("/wochenplan startet den Agenten mit Tagen und Wünschen", async () => {

@@ -19,6 +19,7 @@ export const COMMAND_NAMES = {
   "/bild-neu": "/new-image",
   "/bild-alle": "/all-images",
   "/pruefen": "/check",
+  "/pruefen-rezept": "/check-recipe",
   "/pro-tag": "/per-day",
   "/wochenplan": "/meal-plan",
   "/was-kochen": "/what-to-cook",

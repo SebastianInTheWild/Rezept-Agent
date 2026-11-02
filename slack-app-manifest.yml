@@ -75,6 +75,11 @@ features:
       description: Qualitätsprüfung jetzt starten
       usage_hint: "[Anzahl]"
       should_escape: false
+    - command: /pruefen-rezept
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Ein Rezept gezielt neu prüfen
+      usage_hint: "<Name | ID>"
+      should_escape: false
     - command: /pro-tag
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Wie viele Rezepte täglich geprüft werden

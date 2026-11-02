@@ -80,12 +80,29 @@ export function addToday(n) {
   mkdirSync(REZEPTE, { recursive: true });
   writeFileSync(SETTINGS, JSON.stringify({ ...readSettings(), extra: { tag: today(), anzahl } }, null, 1));
 }
+// Einzelne Rezepte gezielt prüfen (Slack „/pruefen-rezept <Name | ID>“): { einzeln: [{ id, at }] }.
+// Sie kommen beim nächsten Lauf zuerst dran – egal ob schon geprüft, abgelehnt oder „nicht bearbeiten“, ohne Tageslimit.
+// Erledigt, sobald es einen Qualitäts-Vorschlag dazu gibt, der nach der Anfrage entstand.
+const singles = (store = loadStore()) =>
+  (readSettings().einzeln || []).filter((s) => !Object.values(store.proposals).some((p) => p.kind === "quality" && p.original_id === s.id && Date.parse(p.created) >= Date.parse(s.at)));
+/** Rezept beim nächsten Lauf der Qualitätsprüfung prüfen. false, wenn es schon vorgemerkt ist. */
+export function addSingle(id) {
+  const list = singles();
+  if (list.some((s) => s.id === id)) return false;
+  mkdirSync(REZEPTE, { recursive: true });
+  writeFileSync(SETTINGS, JSON.stringify({ ...readSettings(), einzeln: [...list, { id, at: new Date().toISOString() }] }, null, 1));
+  return true;
+}
+/** Offener Vorschlag zu einem Rezept (Qualität oder Import), sonst null */
+export const openProposalFor = (id) => Object.values(loadStore().proposals).find((p) => p.status === "open" && (p.original_id === id || p.draft_id === id)) || null;
+
 // Höchstens so viele Qualitäts-Vorschläge gleichzeitig offen in Slack (Standard: zwei Tagesportionen)
 const maxOpen = () => Number(process.env.REZEPT_MAX_OFFEN) || Math.max(1, 2 * (perDay().value + extraToday()));
 
 const today = (now = new Date()) => now.toLocaleDateString("sv-SE", { timeZone: process.env.TZ || "Europe/Berlin" });
 const sameDay = (iso, now) => Boolean(iso) && today(new Date(iso)) === today(now);
-const proposedToday = (store, now) => Object.values(store.proposals).filter((p) => p.kind === "quality" && sameDay(p.created, now)).length;
+// Gezielt angefragte Rezepte („/pruefen-rezept“, p.single) zählen nicht zum Tageswert
+const proposedToday = (store, now) => Object.values(store.proposals).filter((p) => p.kind === "quality" && !p.single && sameDay(p.created, now)).length;
 
 // ---------- Lesen ----------
 
@@ -117,8 +134,12 @@ export async function pending() {
   const openQuality = open.filter((p) => p.kind === "quality").length;
   const free = Math.max(0, maxOpen() - openQuality);
   const later = (a, b) => b && Date.parse(a) - Date.parse(b) > 120_000;
-  const list = (await all("/api/recipe/"))
-    .filter((r) => !isDraft(r.name) && !busy.has(r.id))
+  const recipes = await all("/api/recipe/");
+  // Gezielt angefragte Rezepte zuerst (ohne Tageslimit); gelöschte oder mit offenem Vorschlag warten bzw. fallen weg
+  const wanted = new Set(singles(store).map((s) => s.id));
+  const single = recipes.filter((r) => wanted.has(r.id) && !isDraft(r.name) && !busy.has(r.id));
+  const list = recipes
+    .filter((r) => !isDraft(r.name) && !busy.has(r.id) && !wanted.has(r.id))
     .filter((r) => {
       const k = kwNames(r);
       if (k.includes(KW.skip) || k.includes(KW.open)) return false;
@@ -127,7 +148,8 @@ export async function pending() {
       return true;
     })
     .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-  return { total: list.length, open_proposals: open.length, open_quality: openQuality, left_today: leftToday, free, batch: list.slice(0, Math.min(leftToday, free)) };
+  const regular = list.slice(0, Math.min(leftToday, free));
+  return { total: list.length + single.length, open_proposals: open.length, open_quality: openQuality, left_today: leftToday, free, single: single.length, batch: [...single, ...regular] };
 }
 
 // Statistik über alle Rezepte (ohne Entwürfe) nach Status-Schlagwort, dazu was heute entschieden wurde
@@ -654,7 +676,8 @@ export async function propose() {
     if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition);
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
-    p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
+    const single = kind === "quality" && singles(store).some((x) => x.id === d.original_id);
+    p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent", ...(single ? { single: true } : {}) };
     // Bild: einheitlicher KI-Stil (BILD_EINHEITLICH, Standard an) – neue Rezepte bekommen immer ein KI-Foto.
     // Verbesserungsvorschläge bringen das Bild ebenfalls auf den Stil: Hat das Original schon ein KI-Bild im aktuellen
     // Stil, wird es übernommen, sonst entsteht ein neues; das alte wird beim Übernehmen gesichert (wie bei /bild-neu).
