@@ -31,6 +31,7 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, 
 
 ### Behoben
 - **`/bild-alle` ging nicht mehr:** Slack lehnte die Auswahl-Nachricht ab (`invalid_blocks`, „`action_id` already exists“), weil die Knöpfe „Alle“, „Nur ohne KI-Bild“ und „Nur alter Stil“ dieselbe Kennung hatten. Jeder Knopf hat jetzt eine eigene.
+- **Google-Bilder: „Deadline expired before operation could complete“** (HTTP 504) und andere vorübergehende Google-Fehler (500/502/503) werden jetzt bis zu zweimal wiederholt (nach 10 und 20 Sekunden), statt das Bild gleich als Fehler zu werten – z. B. bei `/bild-alle`.
 - **`/bild-neu` und `/bild-alle`:** Das Sichern des alten Bildes scheiterte mit HTTP 400, wenn Tandoor die Bilder über signierte S3-Adressen ausliefert (z. B. app.tandoor.dev) – S3 lehnt den zusätzlich mitgeschickten Tandoor-Token ab. Das Bild wird jetzt zuerst ohne Token geladen, der Token nur bei 401/403 mitgeschickt.
 
 ## 2026-11-02 (Sprache)
