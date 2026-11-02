@@ -76,6 +76,8 @@ Answers are only visible to you; `/check`, `/no-image`, `/new-image`, `/all-imag
 
 With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.
 
+**Restart message:** after every container start (update, restart from the web UI, server reboot, crash) the agent posts to the recipe channel that it is running again – with the version (commit) and whether it was an update ("from … to …"). Turn it off with `NEUSTART_MELDUNG=aus` or in the web UI under Settings → Slack.
+
 ## Recipes from HelloFresh
 
 Tandoor's own importer can't read HelloFresh pages. For HelloFresh links (all country sites, e.g. `hellofresh.com/recipes/…`) the container therefore reads the recipe itself from the page data: ingredients with amounts per number of servings (the agent takes 2 servings), steps with the ingredients used in each, utensils, times. Package amounts like "1 pack of cream" get the usual quantity added by the agent. If HelloFresh blocks the request, the agent asks for a screenshot of the recipe card or the text.

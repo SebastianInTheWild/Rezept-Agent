@@ -71,6 +71,8 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
 
+**Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version (Commit) und ob es ein Update war („von … auf …“). Abschalten mit `NEUSTART_MELDUNG=aus` oder in der Weboberfläche unter Einstellungen → Slack.
+
 ## Rezepte von HelloFresh
 
 Tandoors eigener Import kann HelloFresh-Seiten nicht lesen. Für HelloFresh-Links (alle Länderseiten, z. B. `hellofresh.de/recipes/…`) liest der Container das Rezept deshalb selbst aus den Daten der Seite: Zutaten mit Mengen je Portionszahl (der Agent nimmt 2 Portionen), Schritte mit den jeweils verwendeten Zutaten, Utensilien, Zeiten. Packungsangaben wie „1 Packung Kochsahne“ ergänzt der Agent um die übliche Menge. Blockt HelloFresh den Abruf, bittet er um einen Screenshot der Rezeptkarte oder den Text.
