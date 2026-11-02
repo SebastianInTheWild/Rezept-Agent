@@ -39,6 +39,28 @@ export const requestStart = (id, by) => {
   mkdirSync(join(DATA_DIR, id), { recursive: true });
   writeFileSync(statusFile(id, "start-anfrage.json"), JSON.stringify({ at: new Date().toISOString(), by }));
 };
+// ---------- Wiederholung, wenn ein Lauf am Claude-Limit scheitert ----------
+// retry.json je Agent: { first, next, attempts, by } – der Zeitplan startet den Agenten ab „next“ erneut,
+// alle CLAUDE_WIEDERHOLEN_MIN Minuten (Standard 30), höchstens 24 Stunden lang.
+const RETRY_HOURS = 24;
+export const retryMinutes = () => Math.max(5, Number(process.env.CLAUDE_WIEDERHOLEN_MIN) || 30);
+/** Erkennt die Limit-Meldungen von Claude Code („usage limit reached“, „You've hit your limit · resets …“, Rate-Limit). */
+export const isLimitError = (text = "") => /usage limit|hit your (usage )?limit|limit reached|rate.?limit|out of (extra )?usage|\b429\b|overloaded/i.test(text);
+export const pendingRetry = (id) => readStatus(id, "retry.json");
+export const clearRetry = (id) => rmSync(statusFile(id, "retry.json"), { force: true });
+function scheduleRetry(id, by) {
+  const old = pendingRetry(id);
+  const first = old?.first || new Date().toISOString();
+  if (Date.now() - Date.parse(first) > RETRY_HOURS * 3_600_000) {
+    clearRetry(id);
+    return null;
+  }
+  const next = new Date(Date.now() + retryMinutes() * 60_000).toISOString();
+  const entry = { first, next, attempts: (old?.attempts || 0) + 1, by: old?.by || by };
+  writeStatus(id, "retry.json", entry);
+  return entry;
+}
+
 export const hasStartRequest = (id) => existsSync(statusFile(id, "start-anfrage.json"));
 export const takeStartRequest = (id) => {
   if (!hasStartRequest(id)) return false;
@@ -62,7 +84,10 @@ export async function runAgent(id, { quiet = false, by = "direkt" } = {}) {
     throw e;
   } finally {
     rmSync(statusFile(id, "status.json"), { force: true });
-    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000) };
+    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000), ...(r?.limit ? { limit: true } : {}) };
+    // Am Claude-Limit gescheitert: später erneut (Läufe aus Slack wiederholt die Slack-Brücke selbst, mit ihrem Auftrag)
+    if (r?.limit && by !== "slack") entry.retry = scheduleRetry(id, by)?.next || null;
+    else if (r && r.result !== "fehler") clearRetry(id);
     // Leere Vorprüfungen alle paar Minuten überschreiben nicht den letzten echten Lauf
     if (quiet && entry.result === "nichts zu tun") writeStatus(id, "last-check.json", entry);
     else if (existsSync(join(DATA_DIR, id))) writeStatus(id, "last-run.json", entry);
@@ -115,10 +140,15 @@ async function run(id, quiet, by) {
   if (agent.model || process.env.CLAUDE_MODEL) args.push("--model", agent.model || process.env.CLAUDE_MODEL);
   log(`Claude startet${by !== "direkt" ? ` (${by})` : ""}`);
   writeStatus(id, "status.json", { running: true, since: new Date().toISOString(), by });
+  let tail = ""; // Ende der Ausgabe – daran erkennen wir das Claude-Limit
+  const keep = (d) => {
+    appendFileSync(logFile, d);
+    tail = (tail + d).slice(-4000);
+  };
   const code = await new Promise((resolve) => {
     const p = spawn(process.env.CLAUDE_BIN || "claude", args, { cwd: APP, env, stdio: ["ignore", "pipe", "pipe"] });
-    p.stdout.on("data", (d) => appendFileSync(logFile, d));
-    p.stderr.on("data", (d) => appendFileSync(logFile, d));
+    p.stdout.on("data", keep);
+    p.stderr.on("data", keep);
     p.on("close", resolve);
     p.on("error", (e) => {
       log(`Claude nicht startbar: ${e.message}`);
@@ -126,11 +156,23 @@ async function run(id, quiet, by) {
     });
   });
   log(`Claude beendet (Code ${code})`);
+  const limit = code !== 0 && isLimitError(tail);
   if (code !== 0) {
-    // Fehlermeldung in den Slack-Kanal (SLACK_CHANNEL), falls Slack eingerichtet ist
-    if (slackReady() && process.env.SLACK_CHANNEL) {
-      await post(process.env.SLACK_CHANNEL, L(`⚠️ Agent „${agent.name || id}“: Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`, `⚠️ Agent “${agent.name_en || agent.name || id}”: the run failed (code ${code}). Details in the log ${logFile}.`)).catch(() => {});
-    }
+    const name = L(agent.name || id, agent.name_en || agent.name || id);
+    const msg = limit
+      ? by === "slack"
+        ? null // die Slack-Brücke meldet sich im Thread des Auftrags
+        : L(
+            `⏳ Agent „${name}“: Das Claude-Limit ist erreicht. Ich versuche es alle ${retryMinutes()} Minuten erneut, bis es wieder geht.`,
+            `⏳ Agent “${name}”: the Claude limit is reached. I'll retry every ${retryMinutes()} minutes until it works again.`,
+          )
+      : L(`⚠️ Agent „${name}“: Der Lauf ist fehlgeschlagen (Code ${code}). Details im Log ${logFile}.`, `⚠️ Agent “${name}”: the run failed (code ${code}). Details in the log ${logFile}.`);
+    // Fehlermeldung in den Slack-Kanal (SLACK_CHANNEL), falls Slack eingerichtet ist – bei Wiederholungen nicht jedes Mal
+    if (msg && !(limit && pendingRetry(id)) && slackReady() && process.env.SLACK_CHANNEL) await post(process.env.SLACK_CHANNEL, msg).catch(() => {});
+    if (limit) log(`Claude-Limit erreicht${by === "slack" ? "" : ` – neuer Versuch in ${retryMinutes()} min`}`);
+  } else if (pendingRetry(id) && slackReady() && process.env.SLACK_CHANNEL) {
+    const name = L(agent.name || id, agent.name_en || agent.name || id);
+    await post(process.env.SLACK_CHANNEL, L(`✅ Agent „${name}“: Der nachgeholte Lauf hat geklappt.`, `✅ Agent “${name}”: the retried run worked.`)).catch(() => {});
   }
-  return { code, result: code === 0 ? "ok" : "fehler", note: code === 0 ? "" : `Claude beendet mit Code ${code}` };
+  return { code, limit, result: code === 0 ? "ok" : "fehler", note: code === 0 ? "" : limit ? L("Claude-Limit erreicht", "Claude limit reached") : `Claude beendet mit Code ${code}` };
 }

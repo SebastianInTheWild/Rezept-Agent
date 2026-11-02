@@ -9,7 +9,7 @@
 import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AGENTS_DIR, clearRunning, loadAgent, runAgent } from "./run-agent.mjs";
+import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry } from "./run-agent.mjs";
 import { startWeb, takeQueued } from "./lib/web.mjs";
 import { startSync } from "./lib/sync.mjs";
 
@@ -139,6 +139,11 @@ async function loop() {
             await runAgent(a.id, { by: "zeitplan" }).catch((e) => console.error(`[${a.id}] ${e.stack || e}`));
           }
         }
+      }
+      // Am Claude-Limit gescheiterte Läufe nachholen, sobald die Wartezeit um ist (retry.json, siehe run-agent.mjs)
+      for (const a of list) {
+        const retry = pendingRetry(a.id);
+        if (retry && Date.now() >= Date.parse(retry.next)) await runAgent(a.id, { by: "wiederholung" }).catch((e) => console.error(`[${a.id}] ${e.stack || e}`));
       }
       // Von Hand angeforderte Agenten (Knopf „Jetzt starten“ in der Weboberfläche), nacheinander
       for (let id = takeQueued(); id; id = takeQueued()) {

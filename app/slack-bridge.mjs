@@ -8,7 +8,7 @@ import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runAgent, readStatus, requestStart, hasStartRequest } from "./run-agent.mjs";
+import { runAgent, readStatus, requestStart, hasStartRequest, retryMinutes } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
@@ -90,6 +90,19 @@ async function work() {
       const code = await runAgent(AGENT, { by: "slack" }).catch((e) => (log(e.stack || e), -1));
       delete process.env.REZEPT_JOB;
       const done = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      // Am Claude-Limit gescheitert: Auftrag später noch einmal (höchstens 24 Stunden lang), Hinweis im Thread
+      const last = readStatus(AGENT, "last-run.json");
+      if (!done.result && !done.replied && last?.limit) {
+        const tries = (job.tries || 0) + 1;
+        if (tries * retryMinutes() <= 24 * 60) {
+          const at = new Date(Date.now() + retryMinutes() * 60_000);
+          const when = at.toLocaleTimeString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
+          if (tries === 1) await post(job.channel, L(`⏳ Das Claude-Limit ist gerade erreicht. Ich versuche es um ${when} noch einmal – du musst nichts tun.`, `⏳ The Claude limit is reached right now. I'll try again at ${when} – nothing to do for you.`), undefined, job.thread_ts || job.ts);
+          log(`Claude-Limit – Auftrag ${job.kind} wird um ${when} wiederholt (Versuch ${tries + 1})`);
+          setTimeout(() => (queue.push({ file, job: { ...job, tries } }), work()), at - Date.now());
+          continue;
+        }
+      }
       await unreact(job.channel, job.ts, "eyes");
       if (done.result) await react(job.channel, job.ts, "white_check_mark");
       else {

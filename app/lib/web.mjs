@@ -155,6 +155,7 @@ function overview() {
       since: status?.since || null,
       last: last ? { at: last.at, result: last.result, by: last.by, note: last.note || "" } : null,
       check: check ? { at: check.at, result: check.result } : null,
+      retry: readStatus(id, "retry.json"),
       manual: a.manual !== false,
       queued: queued.includes(id) || hasStartRequest(id),
       ...(id === QUALITY_ID ? { perDay: { ...perDay(), max: PER_DAY_MAX } } : {}),

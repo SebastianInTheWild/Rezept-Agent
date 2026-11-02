@@ -160,7 +160,7 @@ const EN = {
   "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).": "The agent no longer runs on a schedule – only by hand (Start now).",
   "Abbrechen": "Cancel", "ohne Zeitplan": "no schedule", "aus": "off", "Standard verwenden ({def})": "Use default ({def})",
   "läuft gerade": "running", "noch nie gelaufen": "never run", "pausiert – nur von Hand": "paused – manual only", "· aus zeitplan.conf": "· from zeitplan.conf", "· Standard aus agent.json": "· default from agent.json",
-  "Nächster Lauf:": "Next run:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
+  "Nächster Lauf:": "Next run:", "Claude-Limit – nächster Versuch:": "Claude limit – next try:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
   "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.": "Starts via Slack (links and photos in the recipe channel) – needs no schedule.",
   "Ändern": "Edit", "Jetzt senden": "Send now", "Läuft …": "Running …", "Startet gleich …": "Starting soon …", "Jetzt starten": "Start now",
   "Keine Agenten gefunden.": "No agents found.", "Datei: {file} · Zeitzone: {tz}": "File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
@@ -415,6 +415,7 @@ function card(item) {
     if (item.running) add("Seit:", fmt(item.since));
     if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
     if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · ${t("nichts zu tun")}`);
+    if (item.retry) add("Claude-Limit – nächster Versuch:", fmt(item.retry.next));
   }
   c.append(meta);
   if (item.perDay) c.append(perDayBox(item));

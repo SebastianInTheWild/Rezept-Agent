@@ -1,0 +1,52 @@
+# Prüft jeden Pull Request (und jeden Push auf main):
+#   1. Syntax aller Programmdateien und des Skripts der Weboberfläche
+#   2. Tests (test/*.test.mjs) mit nachgebautem Tandoor, Slack, Google und GitHub – ohne echte Zugangsdaten
+#   3. Das Docker-Image lässt sich bauen (ohne es hochzuladen)
+# Lokal: node --test --test-force-exit "test/*.test.mjs"
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+
+      - name: Syntax
+        run: |
+          for f in app/*.mjs app/lib/*.mjs test/*.mjs; do node --check "$f"; done
+          node -e 'const s=require("fs").readFileSync("app/lib/web.html","utf8");require("fs").writeFileSync("/tmp/web.js",s.match(/<script>([\s\S]*)<\/script>/)[1])'
+          node --check /tmp/web.js
+          node -e 'for (const f of require("fs").readdirSync("agents",{withFileTypes:true})) if (f.isDirectory() && !f.name.startsWith("_")) JSON.parse(require("fs").readFileSync(`agents/${f.name}/agent.json`,"utf8"))'
+
+      - name: Tests
+        run: node --test --test-force-exit --test-reporter=spec "test/*.test.mjs"
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Image bauen (ohne Hochladen)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
