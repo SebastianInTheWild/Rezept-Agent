@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT } from "./tandoor.mjs";
+import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { post, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
@@ -244,8 +244,8 @@ export async function postWithoutImage(recipes, channel = CHANNEL()) {
   saveStore(store);
 }
 
-// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
-async function backupImage(r) {
+// Aktuelles Bild eines Rezepts aus Tandoor laden
+async function fetchRecipeImage(r) {
   const url = /^https?:/.test(r.image) ? r.image : base() + r.image;
   // Erst ohne Token: Tandoor liefert Bilder oft über signierte S3-Adressen, und S3 lehnt einen zusätzlichen
   // Authorization-Header mit HTTP 400 ab. Den Token nur mitschicken, wenn der Server ihn verlangt (401/403).
@@ -254,6 +254,12 @@ async function backupImage(r) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (!buf.length) throw new Error("leer");
+  return buf;
+}
+
+// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
+async function backupImage(r) {
+  const buf = await fetchRecipeImage(r);
   mkdirSync(join(REZEPTE, "sicherungen"), { recursive: true });
   const file = join(REZEPTE, "sicherungen", `${r.id}-bild-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageType(buf).ext}`);
   writeFileSync(file, buf);
@@ -351,6 +357,96 @@ export async function reconcileAiImages() {
   }
   saveStore(store);
   return result;
+}
+
+// ---------- Gesicherte Bilder (Weboberfläche → Sicherungen) ----------
+// Dateien in daten/rezepte/sicherungen: <rezept-id>-bild-<zeit>.<jpg|png|webp> (Bilder vor /bild-neu, /bild-alle
+// oder einer Wiederherstellung) und <rezept-id>-<zeit>.json (Rezept vor dem Übernehmen eines Verbesserungsvorschlags).
+
+const BACKUPS = () => join(REZEPTE, "sicherungen");
+const BACKUP_FILE = /^(\d+)-(bild-)?(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.(jpg|png|webp|json)$/;
+// „2026-11-02T09-12-00-000Z“ → ISO-Zeit
+const backupTime = (s) => s.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "T$1:$2:$3.$4Z");
+const KEEP_DAYS = 180;
+
+/** Pfad einer Sicherung – nur Dateinamen im erwarteten Format, kein Pfad nach außen. */
+export function backupPath(file) {
+  if (!BACKUP_FILE.test(String(file || ""))) throw new Error(L("Unbekannte Sicherung", "Unknown backup"));
+  const path = join(BACKUPS(), file);
+  if (!existsSync(path)) throw new Error(L("Sicherung nicht gefunden", "Backup not found"));
+  return path;
+}
+
+/**
+ * Alle Sicherungen, nach Rezept gruppiert (neueste zuerst), mit Rezeptnamen aus Tandoor.
+ * remote: Dateinamen, die in der GitHub-Sicherung liegen – fehlen sie lokal (nach 180 Tagen aufgeräumt), kommen sie mit remote: true dazu.
+ */
+export async function listBackups({ remote = [] } = {}) {
+  const dir = BACKUPS();
+  const localFiles = existsSync(dir) ? readdirSync(dir) : [];
+  const files = [...localFiles, ...remote.filter((f) => !localFiles.includes(f))];
+  const inRepo = new Set(remote);
+  const recipes = new Map((await all("/api/recipe/").catch(() => [])).map((r) => [String(r.id), r]));
+  const groups = new Map();
+  const aiReg = loadStore().ai_images || {};
+  for (const file of files) {
+    const m = BACKUP_FILE.exec(file);
+    if (!m) continue;
+    const isLocal = localFiles.includes(file);
+    const st = isLocal ? statSync(join(dir, file)) : { size: null };
+    const at = backupTime(m[3]);
+    const id = m[1];
+    const r = recipes.get(id);
+    if (!groups.has(id))
+      groups.set(id, { id: Number(id), name: r?.name || null, url: recipeUrl(id), exists: Boolean(r), has_image: Boolean(r?.image), ai: Boolean(aiReg[id]), images: [], recipes: [] });
+    const entry = { file, at, size: st.size, local: isLocal, github: inRepo.has(file), expires: isLocal ? new Date(Date.parse(at) + KEEP_DAYS * 86_400_000).toISOString() : null };
+    (m[4] === "json" ? groups.get(id).recipes : groups.get(id).images).push(entry);
+  }
+  const list = [...groups.values()];
+  for (const g of list) for (const k of ["images", "recipes"]) g[k].sort((a, b) => b.at.localeCompare(a.at));
+  // Rezepte mit der neuesten Sicherung zuerst
+  const newest = (g) => [...g.images, ...g.recipes].map((e) => e.at).sort().pop() || "";
+  return list.sort((a, b) => newest(b).localeCompare(newest(a)));
+}
+
+/** Aktuelles Bild eines Rezepts (für den Vergleich in der Weboberfläche) */
+export async function currentRecipeImage(id) {
+  const r = await getRecipe(Number(id));
+  if (!r.image) return null;
+  const buf = await fetchRecipeImage(r);
+  return { buf, type: imageType(buf).mime };
+}
+
+/**
+ * Gesichertes Bild wieder ins Rezept einsetzen. Das aktuelle Bild wird vorher selbst gesichert (umkehrbar).
+ * Ein wiederhergestelltes Bild ist kein KI-Bild mehr: Eintrag und Schlagwort ki-bild verschwinden.
+ */
+export async function restoreBackup(file) {
+  const path = backupPath(file);
+  const m = BACKUP_FILE.exec(file);
+  if (!m[2]) throw new Error(L("Rezept-Sicherungen (JSON) lassen sich hier nur herunterladen", "Recipe backups (JSON) can only be downloaded here"));
+  const r = await getRecipe(Number(m[1]));
+  if (isDraft(r.name)) throw new Error(L("Das Rezept ist gerade ein Entwurf", "The recipe is currently a draft"));
+  let backup = null;
+  if (r.image) backup = await backupImage(r).catch((e) => {
+    throw new Error(L(`Aktuelles Bild ließ sich nicht sichern (${e.message}) – nichts geändert`, `Could not back up the current picture (${e.message}) – nothing changed`));
+  });
+  await uploadImage(r.id, readFileSync(path), `${r.id}-wiederhergestellt`);
+  const store = loadStore();
+  const after = await getRecipe(r.id);
+  if (store.ai_images?.[r.id]) delete store.ai_images[r.id];
+  await setAiKeyword(after, false, store);
+  const fresh = await getRecipe(r.id);
+  if (store.checked[r.id]) store.checked[r.id] = fresh.updated_at;
+  if (store.rejected[r.id]) store.rejected[r.id] = fresh.updated_at;
+  saveStore(store);
+  return { ok: true, id: r.id, name: r.name, url: recipeUrl(r.id), backup: backup && backup.split(/[\\/]/).pop() };
+}
+
+/** Sicherung löschen */
+export function deleteBackup(file) {
+  rmSync(backupPath(file), { force: true });
+  return { ok: true };
 }
 
 /** Für /rezept: wie das Bild entstanden ist (oder null) */
@@ -452,6 +548,14 @@ export function validate(d, ctx) {
   if (!Array.isArray(d.steps) || !d.steps.length) errors.push("steps fehlt");
   if (d.devices !== undefined && !Array.isArray(d.devices)) errors.push("devices muss eine Liste sein");
   if (!Array.isArray(d.keywords)) errors.push("keywords muss eine Liste sein");
+  if (d.nutrition !== undefined && d.nutrition !== null) {
+    if (typeof d.nutrition !== "object" || Array.isArray(d.nutrition)) errors.push("nutrition muss ein Objekt sein: { calories, proteins, fats, carbohydrates } pro Portion");
+    else
+      for (const [k, v] of Object.entries(d.nutrition)) {
+        if (!NUTRIENTS[k]) errors.push(`nutrition.${k} gibt es nicht (erlaubt: ${Object.keys(NUTRIENTS).join(", ")})`);
+        else if (!(Number(v) >= 0) || Number(v) > (k === "calories" ? 5000 : 500)) errors.push(`nutrition.${k} = ${v} ist unplausibel (pro Portion)`);
+      }
+  }
   if (!Array.isArray(d.changes) || !d.changes.length) errors.push("changes fehlt (kurze Liste, was du gemacht hast)");
   const units = new Set(ctx.units);
   const foods = new Set(ctx.foods.map((f) => f.toLowerCase()));
@@ -527,7 +631,9 @@ export async function propose() {
   if (kind === "revise") {
     p = store.proposals[job.proposal];
     if (!p || p.status !== "open") return { ok: false, errors: ["Der Vorschlag ist nicht mehr offen"] };
-    before = simplify(await getRecipe(p.draft_id));
+    const rawDraft = await getRecipe(p.draft_id);
+    before = simplify(rawDraft);
+    if (d.nutrition && !DRY) payload.properties = await nutritionProperties(d.nutrition, rawDraft.properties || []);
     keepAiKw(before.keywords);
     if (DRY) return { ok: true, dry: true, payload, warnings, diff: diff(before, d) };
     await api("PATCH", `/api/recipe/${p.draft_id}/`, payload);
@@ -544,6 +650,8 @@ export async function propose() {
       if (dup.length) warnings.push(`${L("Gibt es schon", "Already exists")}: ${dup.map((r) => r.name).join(", ")}`);
     }
     if (DRY) return { ok: true, dry: true, kind, payload, warnings, diff: before && diff(before, d) };
+    // Entwurf bekommt eigene Eigenschaften (nie die des Originals – Tandoor würde sie sonst gemeinsam benutzen)
+    if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition);
     const draft = await api("POST", "/api/recipe/", payload);
     const id = `p${Date.now().toString(36)}`;
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent" };
@@ -595,6 +703,15 @@ export async function propose() {
   return { ok: true, proposal: p.id, draft_url: recipeUrl(p.draft_id), warnings, diff: dif?.lines };
 }
 
+/** „Pro Portion: 650 kcal · 25 g Eiweiß · 30 g Fett · 60 g Kohlenhydrate“ */
+export function nutritionText(n) {
+  const fmt = (v) => Math.round(Number(v)).toLocaleString(locale());
+  const parts = Object.entries(NUTRIENTS)
+    .filter(([k]) => n[k] !== undefined && n[k] !== null)
+    .map(([k, t]) => `${fmt(n[k])} ${t.unit} ${k === "calories" ? "" : L(t.de, t.en)}`.trim());
+  return `${L("Pro Portion", "Per serving")}: ${parts.join(" · ")}`;
+}
+
 export function proposalMessage(p, d, { kind, warnings = [], dif }) {
   const draftLink = link(recipeUrl(p.draft_id), L("Entwurf ansehen", "View draft"));
   const head = {
@@ -608,6 +725,7 @@ export function proposalMessage(p, d, { kind, warnings = [], dif }) {
     { type: "section", text: { type: "mrkdwn", text: cut(`*${L("Was ich gemacht habe", "What I did")}*\n${d.changes.map((c) => `• ${esc(c)}`).join("\n")}`) } },
   ];
   if (dif?.lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: cut(`*${L("Zutaten", "Ingredients")}* (${L("Schritte", "steps")} ${dif.steps})\n${dif.lines.slice(0, 25).map(esc).join("\n")}${dif.lines.length > 25 ? `\n… ${L("und", "and")} ${dif.lines.length - 25} ${L("weitere", "more")}` : ""}`) } });
+  if (d.nutrition) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `🥗 ${nutritionText(d.nutrition)}` }] });
   if (dif?.removed) warnings = [L(`${dif.removed} Zutat(en) entfernt – bitte prüfen`, `${dif.removed} ingredient(s) removed – please check`), ...warnings];
   blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: cut([...warnings.map((w) => `⚠️ ${esc(w)}`), `${draftLink} · ${L("Antworte im Thread, wenn ich etwas ändern soll.", "Reply in the thread if you want me to change something.")}`].join("\n")) }] });
   blocks.push(actions(p));
@@ -657,6 +775,8 @@ export async function applyProposal(id, user) {
     writeFileSync(join(REZEPTE, "sicherungen", `${orig.id}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`), JSON.stringify(orig));
     const d = simplify(draft);
     const payload = toTandoor(d, { name: stripDraft(draft.name), keywords: keywords.map((k) => k.name), privateRecipe: orig.private });
+    // Nährwerte aus dem Entwurf übernehmen, andere Eigenschaften des Originals behalten
+    if (d.nutrition) payload.properties = await nutritionProperties(d.nutrition, orig.properties || []);
     await api("PATCH", `/api/recipe/${orig.id}/`, payload);
     const after = simplify(await getRecipe(orig.id));
     const left = diff(d, after);

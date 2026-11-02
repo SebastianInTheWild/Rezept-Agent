@@ -43,6 +43,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
   "source_url": "https://…",
   "image_prompt": "cremiger, hellgrüner Wirsing in einer tiefen weißen Schüssel, kleine Speckwürfel obenauf",
   "keywords": ["Einfach", "Herzhaft", "Beilage", "Wirsing", "Sahne"],
+  "nutrition": {"calories": 420, "proteins": 9, "fats": 34, "carbohydrates": 18},
   "devices": ["Messer", "Schneidebrett", "Topf"],
   "steps": [
     {"instruction": "Wirsing putzen, klein schneiden und in Olivenöl anschwitzen.", "time": 5,
@@ -60,6 +61,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 6. `node tandoor.mjs propose` – prüft die Datei, legt den Entwurf in Tandoor an (bzw. ändert ihn) und zeigt ihn in Slack mit Knöpfen. Meldet es `ok: false`, lies `errors`, korrigiere die Datei und ruf `propose` noch einmal auf. Bei `ok: true` bist du fertig.
 
 ## Regeln
+- `nutrition` (Nährwerte pro Portion): Fehlt `nutrition` im Rezept, schätze sie aus Zutaten und Mengen und schreib `"nutrition": {"calories": 650, "proteins": 25, "fats": 30, "carbohydrates": 60}` (kcal bzw. g, gerundet, **pro Portion**, also Gesamtmenge geteilt durch `servings`). Schlagwort „Nährwerte geschätzt“ (bei `language: en`: „Nutrition estimated“) dazu und in `changes` z. B. „Nährwerte pro Portion geschätzt“. Liefert die Quelle Nährwerte (z. B. HelloFresh `nutrition`), nimm diese (umgerechnet auf eine Portion) statt zu schätzen. Vorhandene Nährwerte änderst du nur, wenn sie offensichtlich falsch sind.
 - `image_prompt` (immer): Alle Rezeptfotos werden mit KI in einem einheitlichen Stil erzeugt (Tisch, Licht und Perspektive legt `agents/bild-stil.md` fest). Du beschreibst nur das **Gericht selbst** in 1–2 Sätzen: Farbe, Konsistenz, Form, was obenauf liegt, worin es serviert wird – z. B. „dunkles Gulasch in einer tiefen Schale, gehackte Petersilie obenauf, Brot daneben“. Gibt es ein Foto der Quelle (`image_url`/`images` aus `fetch-url`, das Foto aus dem Auftrag oder bei Videos die Standbilder `frames`, vor allem `…-fertig.jpg`), sieh es dir an und beschreib das Gericht so, wie es dort aussieht. Nur Zutaten aus dem Rezept, kein Text, keine Personen.
 - `image_url` / `image_file` (optional): Foto-Link der Quelle bzw. Pfad eines Standbilds. Werden nur genutzt, wenn der einheitliche Bildstil ausgeschaltet ist (`BILD_EINHEITLICH=aus`); schadet nicht, sie mitzuschicken.
 - Der Entwurf ist immer komplett in der eingestellten Sprache (`language`), egal in welcher Sprache Link, Video oder Foto sind. Übersetze alles, auch Zutaten und Notizen, und rechne Maße um (siehe Abschnitt zur Sprache im Standard). In `changes` steht dann z. B. „Aus dem Französischen übersetzt“ bzw. „Translated from French“.

@@ -9,9 +9,11 @@
 import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in process.env
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AGENTS_DIR, clearRunning, loadAgent, runAgent } from "./run-agent.mjs";
+import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry } from "./run-agent.mjs";
 import { startWeb, takeQueued } from "./lib/web.mjs";
 import { startSync } from "./lib/sync.mjs";
+import { startBackupSchedule } from "./lib/github-sicherung.mjs";
+import { post, slackReady } from "./lib/slack.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const RUNS_FILE = join(DATA_DIR, "runs.json");
@@ -140,6 +142,11 @@ async function loop() {
           }
         }
       }
+      // Am Claude-Limit gescheiterte Läufe nachholen, sobald die Wartezeit um ist (retry.json, siehe run-agent.mjs)
+      for (const a of list) {
+        const retry = pendingRetry(a.id);
+        if (retry && Date.now() >= Date.parse(retry.next)) await runAgent(a.id, { by: "wiederholung" }).catch((e) => console.error(`[${a.id}] ${e.stack || e}`));
+      }
       // Von Hand angeforderte Agenten (Knopf „Jetzt starten“ in der Weboberfläche), nacheinander
       for (let id = takeQueued(); id; id = takeQueued()) {
         if (!list.some((a) => a.id === id)) continue;
@@ -155,6 +162,8 @@ async function loop() {
   startWeb();
   // agents/ aus GitHub nachladen (AGENTS_SYNC, Standard alle 10 min; „aus“ = nie)
   startSync();
+  // Rezepte und Sicherungen täglich in ein privates GitHub-Repo (BACKUP_REPO, BACKUP_TOKEN; zeitplan.conf: rezept-sicherung)
+  startBackupSchedule({ notify: (text) => (slackReady() && process.env.SLACK_CHANNEL ? post(process.env.SLACK_CHANNEL, text).catch(() => {}) : Promise.resolve()) });
   // Beim ersten Start keine alten Zeiten von heute nachholen
   const n0 = now();
   const runs = loadRuns();

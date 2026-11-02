@@ -35,5 +35,8 @@ Use existing ones (see `context`) if they are English, otherwise English ones. E
 - **Taste:** Sweet or Savory
 - **Type:** e.g. Main course, Starter, Salad, Soup, Sauce, Dip, Dessert, Cake, Tart, Tray bake, Pastry, Cookies, Baking, Drink
 - **Main ingredients:** 1–3, e.g. Potatoes, Minced meat, Cream, Onion
-- "Nutrition estimated" stays if it was already there (also as „Nährwerte geschätzt“).
+- "Nutrition estimated" when you estimated the nutrition (see below); stays if it was already there (also as „Nährwerte geschätzt“).
 The tool sets the status keywords (geprüft, vorschlag-offen, nicht-bearbeiten) and ki-bild itself – never add them yourself; they stay German on purpose.
+
+## Nutrition
+- Every recipe has nutrition **per serving** as `nutrition`: calories (kcal), proteins, fats, carbohydrates (g). Estimated from ingredients and amounts and sensibly rounded (kcal to 10, grams to whole numbers). If the source has nutrition values, use those.

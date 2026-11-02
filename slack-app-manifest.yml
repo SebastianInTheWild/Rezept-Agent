@@ -79,6 +79,16 @@ features:
       description: Wie viele Rezepte täglich geprüft werden
       usage_hint: "[Anzahl]"
       should_escape: false
+    - command: /wochenplan
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Essensplan aus euren Rezepten vorschlagen
+      usage_hint: "[Tage] [Wünsche]"
+      should_escape: false
+    - command: /was-kochen
+      url: https://rezepte.hamm.schmalzbauer.work/slack/commands
+      description: Rezepte mit diesen Zutaten finden
+      usage_hint: "<Zutaten>"
+      should_escape: false
     - command: /hilfe
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Was der Rezept-Helfer kann

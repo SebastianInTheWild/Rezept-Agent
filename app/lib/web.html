@@ -96,11 +96,27 @@
   .sticky { position: sticky; bottom: var(--base); display: flex; gap: var(--md); align-items: center; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-pill); padding: var(--sm) var(--sm) var(--sm) var(--lg); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
   .sticky span { flex: 1; font-size: 15px; color: var(--ink-80); }
   [hidden] { display: none !important; }
+
+  /* Sicherungen */
+  .search { width: 100%; max-width: 420px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--md); }
+  .shot { display: grid; gap: var(--xs); align-content: start; }
+  .shot .pic { position: relative; aspect-ratio: 3 / 2; border-radius: var(--r-md); overflow: hidden; background: var(--parchment); border: 1px solid var(--hairline); }
+  .shot .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .shot .pic .label { position: absolute; top: var(--sm); left: var(--sm); background: rgba(0,0,0,.6); color: #fff; border-radius: var(--r-pill); padding: var(--xxs) var(--sm); font-size: 12px; }
+  .shot .pic .none { display: grid; place-items: center; height: 100%; color: var(--ink-48); font-size: 13px; }
+  .shot.current .pic { border: 2px solid var(--primary); }
+  .shot .info { font-size: 13px; color: var(--ink-80); }
+  .shot .acts { display: flex; flex-wrap: wrap; gap: var(--xs) var(--md); font-size: 13px; }
+  .shot .acts a, .shot .acts button { color: var(--primary); background: none; border: 0; padding: 0; cursor: pointer; font-size: 13px; text-decoration: none; }
+  .shot .acts .danger { color: var(--danger); }
+  .files { display: flex; flex-wrap: wrap; gap: var(--xs) var(--md); font-size: 13px; }
+  .files a { color: var(--primary); text-decoration: none; }
   @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } }
 </style>
 </head>
 <body>
-<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span id="clock"></span></div></nav>
+<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#sicherungen" id="tab-bak">Sicherungen</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span id="clock"></span></div></nav>
 <main class="wrap" id="view-plan">
   <header class="hero">
     <h1 id="plan-title">Zeitplan</h1>
@@ -108,6 +124,13 @@
   </header>
   <div class="list" id="list"><div class="empty">Lade …</div></div>
   <footer id="foot"></footer>
+</main>
+<main class="wrap" id="view-bak" hidden>
+  <header class="hero">
+    <h1 id="bak-title">Sicherungen</h1>
+    <p class="sub" id="bak-sub">Bilder, die vor <code>/bild-neu</code>, <code>/bild-alle</code> oder einer Wiederherstellung gesichert wurden, und Rezepte vor einem übernommenen Verbesserungsvorschlag. Sie liegen 180 Tage in <code>daten/rezepte/sicherungen</code>.</p>
+  </header>
+  <div class="list" id="bak"><div class="empty">Lade …</div></div>
 </main>
 <main class="wrap" id="view-env" hidden>
   <header class="hero">
@@ -137,7 +160,7 @@ const EN = {
   "Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).": "The agent no longer runs on a schedule – only by hand (Start now).",
   "Abbrechen": "Cancel", "ohne Zeitplan": "no schedule", "aus": "off", "Standard verwenden ({def})": "Use default ({def})",
   "läuft gerade": "running", "noch nie gelaufen": "never run", "pausiert – nur von Hand": "paused – manual only", "· aus zeitplan.conf": "· from zeitplan.conf", "· Standard aus agent.json": "· default from agent.json",
-  "Nächster Lauf:": "Next run:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
+  "Nächster Lauf:": "Next run:", "Jetzt sichern": "Back up now", "Die Sicherung läuft nur noch von Hand (Jetzt sichern).": "The backup only runs by hand now (Back up now).", "Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.": "Back up all recipes to GitHub now? The first time takes a few minutes.", "GitHub-Sicherung läuft …": "GitHub backup running …", "Claude-Limit – nächster Versuch:": "Claude limit – next try:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
   "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.": "Starts via Slack (links and photos in the recipe channel) – needs no schedule.",
   "Ändern": "Edit", "Jetzt senden": "Send now", "Läuft …": "Running …", "Startet gleich …": "Starting soon …", "Jetzt starten": "Start now",
   "Keine Agenten gefunden.": "No agents found.", "Datei: {file} · Zeitzone: {tz}": "File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
@@ -156,6 +179,20 @@ const EN = {
   "Tokens und Schlüssel lassen sich hier nur ändern, wenn die Oberfläche ein Passwort hat. Setz dafür WEB_PASSWORT in Portainer und starte den Stack neu.": "Tokens and keys can only be changed here when this page has a password. Set WEB_PASSWORT in Portainer and restart the stack.",
   "Änderungen speichern": "Save changes", "Nichts geändert": "Nothing changed",
   "Einstellungen · Agenten": "Settings · Agents", "Zeitplan · Agenten": "Schedule · Agents", "Standard": "default",
+  "Sicherungen": "Backups", "Sicherungen · Agenten": "Backups · Agents", "Bild nicht abrufbar": "Picture not available", "kein Bild": "no picture",
+  "Rezept {id} (gelöscht)": "Recipe {id} (deleted)", "ID {id} · {n} Bild-Sicherung(en)": "ID {id} · {n} picture backup(s)", "{n} Rezept-Sicherung(en)": "{n} recipe backup(s)",
+  "aktuell KI-Bild": "currently AI picture", "aktuell": "current", "{size} · bleibt bis {date}": "{size} · kept until {date}",
+  "Öffnen": "Open", "Herunterladen": "Download", "Wiederherstellen": "Restore", "Wird eingesetzt …": "Restoring …", "Löschen": "Delete",
+  "Dieses Bild wieder in „{name}“ einsetzen? Das aktuelle Bild wird vorher gesichert.": "Put this picture back into “{name}”? The current picture is backed up first.",
+  "{name}: Bild wiederhergestellt": "{name}: picture restored", "Diese Sicherung endgültig löschen?": "Delete this backup permanently?", "Sicherung gelöscht": "Backup deleted",
+  "Rezept vor Verbesserung:": "Recipe before improvement:", "Rezept suchen …": "Search recipe …", "Nichts gefunden.": "Nothing found.",
+  "Noch keine Sicherungen. Sie entstehen bei /bild-neu, /bild-alle und beim Übernehmen von Verbesserungsvorschlägen.": "No backups yet. They are created by /new-image, /all-images and when improvements are applied.",
+  "{r} Rezepte · {n} gesicherte Bilder": "{r} recipes · {n} backed-up pictures",
+  "auch in GitHub": "also in GitHub", "nur noch in GitHub": "only in GitHub now", "Diese Sicherung hier löschen? In GitHub bleibt sie erhalten.": "Delete this backup here? It stays in GitHub.",
+  "Bild- und Rezept-Sicherungen": "Picture and recipe backups", "GitHub-Sicherung": "GitHub backup", "Repo: ": "Repo: ", "letzter Abgleich": "last sync", "In Tandoor gelöschte Rezepte": "Recipes deleted in Tandoor",
+  "Noch nicht eingerichtet. Unter Einstellungen → GitHub-Sicherung ein privates Repo und einen Token eintragen – dann landen alle Rezepte, gelöschte Rezepte und diese Sicherungen täglich dort.": "Not set up yet. Enter a private repo and a token under Settings → GitHub backup – then all recipes, deleted recipes and these backups go there every day.",
+  "Keine – der tägliche Abgleich legt hier ab, was in Tandoor gelöscht wird.": "None – the daily sync puts here whatever gets deleted in Tandoor.",
+  "gelöscht am {date}": "deleted on {date}", "„{name}“ wieder in Tandoor anlegen (mit Bild)?": "Create “{name}” in Tandoor again (with picture)?", "Wird angelegt …": "Creating …", "{name}: wieder in Tandoor": "{name}: back in Tandoor",
 };
 const t = (s, v = {}) => (LANG === "en" && EN[s] ? EN[s] : s).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 const LOCALE = () => (LANG === "en" ? "en-GB" : "de-DE");
@@ -168,6 +205,8 @@ function applyLang(lang) {
   document.documentElement.lang = lang;
   document.getElementById("tab-plan").textContent = t("Zeitplan");
   document.getElementById("tab-env").textContent = t("Einstellungen");
+  document.getElementById("tab-bak").textContent = t("Sicherungen");
+  document.getElementById("bak-title").textContent = t("Sicherungen");
   document.getElementById("plan-title").textContent = t("Zeitplan");
   document.getElementById("env-title").textContent = t("Einstellungen");
   document.querySelector(".nav strong")?.replaceChildren(t("Agenten"));
@@ -182,6 +221,7 @@ function applyLang(lang) {
 const SUBS_DE = {};
 const SUBS_EN = {
   "plan-sub": "When your agents run. Changes go to <code>zeitplan.conf</code> and apply within 30 seconds – no restart needed.",
+  "bak-sub": "Pictures backed up before <code>/new-image</code>, <code>/all-images</code> or a restore, and recipes before an applied improvement. They are kept for 180 days in <code>daten/rezepte/sicherungen</code>.",
   "env-sub": "Credentials and options. Values set here take precedence over the environment variables from Portainer and are stored in <code>daten/umgebung.json</code>. They apply after a container restart.",
 };
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -242,14 +282,14 @@ async function save(item) {
 }
 async function startNow(item, button) {
   const isStats = item.kind === "statistik";
-  if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : t("{name} jetzt starten?", { name: item.name }))) return;
+  const isBak = item.kind === "sicherung"; if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : isBak ? t("Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.") : t("{name} jetzt starten?", { name: item.name }))) return;
   if (isStats && button) { button.disabled = true; button.textContent = t("Wird gesendet …"); }
   try {
     const r = await fetch(`api/run/${encodeURIComponent(item.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; render();
-    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
+    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : isBak ? t("GitHub-Sicherung läuft …") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
   } catch (err) { toast(err.message, true); render(); }
 }
 // Wie viele Rezepte der Qualitäts-Agent pro Tag prüft
@@ -296,7 +336,7 @@ function editor(item) {
   const e = editing;
   const box = el("div", "editor");
   const seg = el("div", "seg");
-  const modes = item.kind === "statistik" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
+  const modes = item.kind !== "agent" ? [["slots", "Feste Zeit"], ["off", "Aus"]] : [["slots", "Feste Zeiten"], ["every", "In Abständen"], ["off", "Pausiert"]];
   for (const [m, label] of modes) {
     const b = el("button", null, t(label)); b.type = "button"; b.setAttribute("aria-pressed", String(e.mode === m));
     b.onclick = () => { e.mode = m; e.error = ""; render(); };
@@ -319,7 +359,7 @@ function editor(item) {
       if (e.slots.length > 1) { const x = el("button", "x", "×"); x.type = "button"; x.title = t("Zeit entfernen"); x.onclick = () => { e.slots.splice(i, 1); render(); }; row.append(x); }
       box.append(row);
     });
-    if (item.kind !== "statistik") {
+    if (item.kind === "agent") {
       const add = el("button", "link", t("+ Weitere Zeit")); add.type = "button";
       add.onclick = () => { e.slots.push({ days: new Set(DAYS), time: "12:00" }); render(); };
       box.append(add);
@@ -333,7 +373,7 @@ function editor(item) {
     row.append(n, el("span", null, t("Minuten")));
     box.append(row);
   } else {
-    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
+    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : item.kind === "sicherung" ? t("Die Sicherung läuft nur noch von Hand (Jetzt sichern).") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
   }
   if (e.error) box.append(el("p", "err", e.error));
 
@@ -358,7 +398,7 @@ function card(item) {
   left.append(el("h2", "title", item.name));
   if (item.description) left.append(el("p", "desc", item.description));
   head.append(left);
-  if (item.kind === "agent") {
+  if (item.kind === "agent" || item.kind === "sicherung") {
     const [text, cls] = item.running ? ["läuft gerade", "run"] : item.last ? RESULT[item.last.result] || [item.last.result, "idle"] : ["noch nie gelaufen", "idle"];
     head.append(el("span", "badge " + cls, t(text)));
   }
@@ -367,7 +407,7 @@ function card(item) {
   if (item.error) { c.append(el("p", "err", item.error)); return c; }
 
   const chips = el("div", "chips");
-  if (!item.enabled) chips.append(el("span", "chip", item.kind === "statistik" ? t("aus") : t("pausiert – nur von Hand")));
+  if (!item.enabled) chips.append(el("span", "chip", item.kind !== "agent" ? t("aus") : t("pausiert – nur von Hand")));
   else if (!item.schedule.length) chips.append(el("span", "chip", t("ohne Zeitplan")));
   else item.schedule.forEach((s) => chips.append(el("span", "chip", describe(s))));
   chips.append(el("span", "source", item.source === "zeitplan.conf" ? t("· aus zeitplan.conf") : item.source === "agent.json" ? t("· Standard aus agent.json") : `· ${t(item.source)}`));
@@ -376,10 +416,12 @@ function card(item) {
   const meta = el("div", "meta");
   const add = (label, value) => { if (!value) return; const s = el("span"); s.append(el("b", null, t(label) + " "), document.createTextNode(value)); meta.append(s); };
   add("Nächster Lauf:", item.next);
+  if (item.kind === "sicherung" && item.last) add("Zuletzt:", `${fmt(item.last.at)} · ${item.last.note}`);
   if (item.kind === "agent") {
     if (item.running) add("Seit:", fmt(item.since));
     if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
     if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · ${t("nichts zu tun")}`);
+    if (item.retry) add("Claude-Limit – nächster Versuch:", fmt(item.retry.next));
   }
   c.append(meta);
   if (item.perDay) c.append(perDayBox(item));
@@ -392,6 +434,10 @@ function card(item) {
     const row = el("div", "actions"); row.append(b);
     if (item.kind === "statistik") {
       const go = el("button", "btn", item.running ? t("Wird gesendet …") : t("Jetzt senden")); go.type = "button";
+      go.disabled = item.running; go.onclick = () => startNow(item, go);
+      row.append(go);
+    } else if (item.kind === "sicherung" && item.manual) {
+      const go = el("button", "btn", item.running ? t("Läuft …") : t("Jetzt sichern")); go.type = "button";
       go.disabled = item.running; go.onclick = () => startNow(item, go);
       row.append(go);
     } else if (item.kind === "agent" && item.manual) {
@@ -514,14 +560,164 @@ function renderEnv() {
   box.replaceChildren(...parts);
 }
 
+// ---------- Sicherungen ----------
+let bak = null;
+let bakFilter = "";
+const fileUrl = (f, download) => `api/sicherungen/datei/${encodeURIComponent(f)}${download ? "?download" : ""}`;
+const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const dateOnly = (iso) => new Date(iso).toLocaleDateString(LOCALE(), { day: "2-digit", month: "2-digit", year: "numeric" });
+
+async function loadBak() {
+  try {
+    const r = await fetch("api/sicherungen", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    bak = await r.json(); applyLang(bak.lang); renderBak();
+  } catch (err) { toast(t("Laden fehlgeschlagen: {msg}", { msg: err.message }), true); }
+}
+async function bakAction(path, file, okMsg) {
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    Object.assign(bak, { items: j.items, github: j.github ?? bak.github }); renderBak(); toast(okMsg);
+  } catch (err) { toast(err.message, true); }
+}
+function shot(src, label, cls) {
+  const box = el("div", "shot" + (cls ? " " + cls : ""));
+  const pic = el("div", "pic");
+  if (src) {
+    const img = el("img"); img.loading = "lazy"; img.alt = label; img.src = src;
+    img.onerror = () => pic.replaceChildren(el("div", "none", t("Bild nicht abrufbar")));
+    pic.append(img);
+  } else pic.append(el("div", "none", t("kein Bild")));
+  pic.append(el("span", "label", label));
+  box.append(pic);
+  return box;
+}
+function bakCard(g) {
+  const c = el("article", "card");
+  const head = el("div", "head");
+  const left = el("div");
+  const title = el("h2", "title");
+  if (g.exists) { const a = el("a", null, g.name); a.href = g.url; a.target = "_blank"; a.rel = "noopener"; a.style.color = "inherit"; title.append(a); }
+  else title.textContent = t("Rezept {id} (gelöscht)", { id: g.id });
+  left.append(title);
+  left.append(el("p", "desc", t("ID {id} · {n} Bild-Sicherung(en)", { id: g.id, n: g.images.length }) + (g.recipes.length ? ` · ${t("{n} Rezept-Sicherung(en)", { n: g.recipes.length })}` : "")));
+  head.append(left);
+  if (g.ai) head.append(el("span", "badge", t("aktuell KI-Bild")));
+  c.append(head);
+
+  if (g.images.length) {
+    const grid = el("div", "shots");
+    if (g.exists) grid.append(shot(g.has_image ? `api/sicherungen/aktuell/${g.id}` : null, t("aktuell"), "current"));
+    for (const b of g.images) {
+      const s = shot(fileUrl(b.file), fmt(b.at));
+      s.append(el("div", "info", b.local ? t("{size} · bleibt bis {date}", { size: kb(b.size), date: dateOnly(b.expires) }) + (b.github ? ` · ${t("auch in GitHub")}` : "") : t("nur noch in GitHub")));
+      const acts = el("div", "acts");
+      const open = el("a", null, t("Öffnen")); open.href = fileUrl(b.file); open.target = "_blank"; open.rel = "noopener";
+      const dl = el("a", null, t("Herunterladen")); dl.href = fileUrl(b.file, true);
+      acts.append(open, dl);
+      if (g.exists) {
+        const re = el("button", null, t("Wiederherstellen")); re.type = "button";
+        re.onclick = () => {
+          if (!confirm(t("Dieses Bild wieder in „{name}“ einsetzen? Das aktuelle Bild wird vorher gesichert.", { name: g.name }))) return;
+          re.disabled = true; re.textContent = t("Wird eingesetzt …");
+          bakAction("api/sicherungen/wiederherstellen", b.file, t("{name}: Bild wiederhergestellt", { name: g.name }));
+        };
+        acts.append(re);
+      }
+      if (b.local) {
+        const del = el("button", "danger", t("Löschen")); del.type = "button";
+        del.onclick = () => { if (confirm(b.github ? t("Diese Sicherung hier löschen? In GitHub bleibt sie erhalten.") : t("Diese Sicherung endgültig löschen?"))) bakAction("api/sicherungen/loeschen", b.file, t("Sicherung gelöscht")); };
+        acts.append(del);
+      }
+      s.append(acts);
+      grid.append(s);
+    }
+    c.append(grid);
+  }
+  if (g.recipes.length) {
+    const files = el("div", "files");
+    files.append(el("span", "source", t("Rezept vor Verbesserung:")));
+    for (const b of g.recipes) { const a = el("a", null, `${fmt(b.at)} (JSON)`); a.href = fileUrl(b.file, true); files.append(a); }
+    c.append(files);
+  }
+  return c;
+}
+// GitHub-Sicherung: gelöschte Rezepte (wiederherstellbar), Stand des letzten Abgleichs
+function githubCard() {
+  const c = el("article", "card");
+  const g = bak.github;
+  const head = el("div", "head");
+  const left = el("div");
+  left.append(el("h2", "title", t("GitHub-Sicherung")));
+  if (!g) {
+    left.append(el("p", "desc", t("Noch nicht eingerichtet. Unter Einstellungen → GitHub-Sicherung ein privates Repo und einen Token eintragen – dann landen alle Rezepte, gelöschte Rezepte und diese Sicherungen täglich dort.")));
+    head.append(left); c.append(head); return c;
+  }
+  const link = el("a", null, g.repo.replace("https://github.com/", "")); link.href = g.repo; link.target = "_blank"; link.rel = "noopener";
+  const desc = el("p", "desc"); desc.append(document.createTextNode(t("Repo: ")), link);
+  if (g.last) desc.append(document.createTextNode(` · ${t("letzter Abgleich")}: ${fmt(g.last.at)}${g.last.result === "fehler" ? ` – ${t("fehlgeschlagen")}: ${g.last.note}` : ""}`));
+  left.append(desc); head.append(left);
+  if (g.error) c.append(head, el("p", "err", g.error));
+  else c.append(head);
+  const title = el("p", null); title.append(el("b", null, t("In Tandoor gelöschte Rezepte")));
+  c.append(title);
+  if (!g.deleted.length) { c.append(el("p", "hint", t("Keine – der tägliche Abgleich legt hier ab, was in Tandoor gelöscht wird."))); return c; }
+  const grid = el("div", "shots");
+  for (const d of g.deleted) {
+    const s = shot(d.image ? `api/sicherungen/geloescht/${d.id}/bild` : null, d.name);
+    s.append(el("div", "info", d.deleted ? t("gelöscht am {date}", { date: dateOnly(d.deleted) }) : ""));
+    const acts = el("div", "acts");
+    const re = el("button", null, t("Wiederherstellen")); re.type = "button";
+    re.onclick = async () => {
+      if (!confirm(t("„{name}“ wieder in Tandoor anlegen (mit Bild)?", { name: d.name }))) return;
+      re.disabled = true; re.textContent = t("Wird angelegt …");
+      try {
+        const r = await fetch("api/sicherungen/geloescht/wiederherstellen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: d.id }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        Object.assign(bak, { items: j.items, github: j.github }); renderBak();
+        toast(t("{name}: wieder in Tandoor", { name: d.name }));
+      } catch (err) { toast(err.message, true); re.disabled = false; re.textContent = t("Wiederherstellen"); }
+    };
+    const js = el("a", null, "JSON"); js.href = `api/sicherungen/geloescht/${d.id}/rezept?download`;
+    acts.append(re, js);
+    s.append(acts);
+    grid.append(s);
+  }
+  c.append(grid);
+  return c;
+}
+
+function renderBak() {
+  const box = document.getElementById("bak");
+  const parts = [githubCard()];
+  const search = el("input", "field search"); search.type = "search"; search.placeholder = t("Rezept suchen …"); search.value = bakFilter;
+  search.oninput = () => { bakFilter = search.value; const pos = search.selectionStart; renderBak(); const s = document.querySelector("#bak .search"); s.focus(); s.setSelectionRange(pos, pos); };
+  parts.push(search);
+  const q = bakFilter.trim().toLowerCase();
+  const items = (bak?.items || []).filter((g) => !q || (g.name || "").toLowerCase().includes(q) || String(g.id) === q);
+  parts.push(el("h2", "title", t("Bild- und Rezept-Sicherungen")));
+  if (!bak?.items?.length) parts.push(el("div", "empty", t("Noch keine Sicherungen. Sie entstehen bei /bild-neu, /bild-alle und beim Übernehmen von Verbesserungsvorschlägen.")));
+  else if (!items.length) parts.push(el("div", "empty", t("Nichts gefunden.")));
+  else {
+    const n = items.reduce((s, g) => s + g.images.length, 0);
+    parts.push(el("p", "hint", t("{r} Rezepte · {n} gesicherte Bilder", { r: items.length, n })));
+    parts.push(...items.map(bakCard));
+  }
+  box.replaceChildren(...parts);
+}
+
 function view() {
-  const settings = location.hash === "#einstellungen";
-  document.getElementById("view-plan").hidden = settings;
-  document.getElementById("view-env").hidden = !settings;
-  document.getElementById("tab-plan").setAttribute("aria-current", settings ? "false" : "page");
-  document.getElementById("tab-env").setAttribute("aria-current", settings ? "page" : "false");
-  document.title = settings ? t("Einstellungen · Agenten") : t("Zeitplan · Agenten");
-  if (settings && !Object.keys(changes).length) loadEnv();
+  const page = location.hash === "#einstellungen" ? "env" : location.hash === "#sicherungen" ? "bak" : "plan";
+  for (const p of ["plan", "bak", "env"]) {
+    document.getElementById(`view-${p}`).hidden = p !== page;
+    document.getElementById(`tab-${p}`).setAttribute("aria-current", p === page ? "page" : "false");
+  }
+  document.title = { plan: t("Zeitplan · Agenten"), bak: t("Sicherungen · Agenten"), env: t("Einstellungen · Agenten") }[page];
+  if (page === "env" && !Object.keys(changes).length) loadEnv();
+  if (page === "bak") loadBak();
 }
 window.addEventListener("hashchange", view);
 view();

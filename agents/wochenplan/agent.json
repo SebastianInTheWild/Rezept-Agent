@@ -1,0 +1,18 @@
+{
+  "name": "Wochenplan",
+  "name_en": "Meal plan",
+  "description": "Schlägt einen abwechslungsreichen Essensplan aus euren Tandoor-Rezepten vor (Slack /wochenplan oder nach Zeitplan, z. B. sonntags). Mit einem Klick in den Tandoor-Essensplan und auf die Einkaufsliste.",
+  "description_en": "Suggests a varied meal plan from your Tandoor recipes (Slack /meal-plan or on a schedule, e.g. Sundays). One click puts it into the Tandoor meal plan and the shopping list.",
+  "icon": "mdi:calendar-week",
+  "enabled": true,
+  "schedule": [],
+  "allowedTools": [
+    "Bash(node tandoor.mjs plan-context)",
+    "Bash(node tandoor.mjs plan-propose)",
+    "Bash(node tandoor.mjs recipe:*)",
+    "Bash(node tandoor.mjs reply:*)",
+    "Edit(/{{DATA}}/wochenplan.json)",
+    "Read(/{{DATA}}/wochenplan.json)"
+  ],
+  "maxTurns": 15
+}
