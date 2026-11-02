@@ -36,4 +36,4 @@ Use existing ones (see `context`) if they are English, otherwise English ones. E
 - **Type:** e.g. Main course, Starter, Salad, Soup, Sauce, Dip, Dessert, Cake, Tart, Tray bake, Pastry, Cookies, Baking, Drink
 - **Main ingredients:** 1–3, e.g. Potatoes, Minced meat, Cream, Onion
 - "Nutrition estimated" stays if it was already there (also as „Nährwerte geschätzt“).
-The tool sets the status keywords itself (geprüft, vorschlag-offen, nicht-bearbeiten) – they stay German on purpose.
+The tool sets the status keywords (geprüft, vorschlag-offen, nicht-bearbeiten) and ki-bild itself – never add them yourself; they stay German on purpose.

@@ -8,6 +8,7 @@
 // Verbrauchte Neuronen: Cloudflare-GraphQL (Token braucht zusätzlich „Account Analytics: Read“), Kontingent CF_NEURONEN_PRO_TAG (Standard 10.000).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -180,6 +181,16 @@ export async function generateImage(d, dir, { only, noLimit = false } = {}) {
 }
 
 /** Kurzer Hinweis, womit das letzte Bild erzeugt wurde (bei Cloudflare mit den freien Neuronen). */
+/** Kennung des aktuellen Bildstils (agents/bild-stil.md) – ändert sich, sobald jemand den Stil ändert */
+export const styleId = () => createHash("sha1").update(imageStyle()).digest("hex").slice(0, 8);
+
+/** Womit das letzte Bild erzeugt wurde – für das Merkmal „KI-Bild“ (intern + Schlagwort ki-bild) */
+export function lastImageInfo() {
+  const model =
+    lastProvider === "google" ? googleModel() : lastProvider === "openai" ? process.env.BILD_MODELL || "gpt-image-2" : lastProvider === "cloudflare" ? (provider() === "cloudflare" && process.env.BILD_MODELL) || "flux-2-klein-9b" : "";
+  return { provider: lastProvider || "?", model: model || "?", style: styleId() };
+}
+
 export async function lastImageNote() {
   const name = NAMES[lastProvider] || lastProvider;
   if (lastProvider === "google") return `${name} (${googleModel()})`;

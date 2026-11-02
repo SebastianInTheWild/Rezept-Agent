@@ -5,6 +5,7 @@ Alle wichtigen Änderungen am Rezept-Agent. Neueste oben. (All notable changes, 
 ## Unveröffentlicht
 
 ### Neu
+- **Merkmal „KI-Bild“:** Jedes mit KI erzeugte Rezeptbild wird intern mitgeschrieben (Anbieter, Modell, Datum, Stil-Kennung aus `agents/bild-stil.md`, Bildpfad) und in Tandoor mit dem Schlagwort `ki-bild` markiert – bei neuen Rezepten, Verbesserungsvorschlägen, `/ohne-bild`, `/bild-neu` und `/bild-alle`. Ein täglicher Abgleich entfernt das Merkmal, wenn das Bild in Tandoor ersetzt oder gelöscht wurde, und setzt fehlende Schlagwörter wieder. `/statistik` zählt die KI-Bilder, `/rezept` zeigt Modell, Datum und ob der Stil veraltet ist, `/bild-alle` bietet „alle“, „nur ohne KI-Bild“ und „nur alter Stil“ an.
 - **Slack `/google`:** Google-Nutzung des Monats – Bilder (je Modell), ausgewertete Videos mit Tokens, geschätzte Kosten, heute und Vormonat. Mit `GOOGLE_GUTHABEN` (z. B. 10 $ aus Google AI Pro) auch das Rest-Guthaben und einmal pro Monat eine Warnung bei 80 %. Gezählt werden die eigenen Aufrufe des Agenten (`daten/rezepte/google-nutzung.json`), Preise in den Einstellungen anpassbar (`GOOGLE_PREIS_BILD`, `GEMINI_PREIS_EINGABE`, `GEMINI_PREIS_AUSGABE`).
 
 ## 2026-11-02 (Neustart-Meldung, Bild-Fix)
