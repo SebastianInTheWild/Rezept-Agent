@@ -244,8 +244,8 @@ export async function postWithoutImage(recipes, channel = CHANNEL()) {
   saveStore(store);
 }
 
-// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
-async function backupImage(r) {
+// Aktuelles Bild eines Rezepts aus Tandoor laden
+async function fetchRecipeImage(r) {
   const url = /^https?:/.test(r.image) ? r.image : base() + r.image;
   // Erst ohne Token: Tandoor liefert Bilder oft über signierte S3-Adressen, und S3 lehnt einen zusätzlichen
   // Authorization-Header mit HTTP 400 ab. Den Token nur mitschicken, wenn der Server ihn verlangt (401/403).
@@ -254,6 +254,12 @@ async function backupImage(r) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (!buf.length) throw new Error("leer");
+  return buf;
+}
+
+// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
+async function backupImage(r) {
+  const buf = await fetchRecipeImage(r);
   mkdirSync(join(REZEPTE, "sicherungen"), { recursive: true });
   const file = join(REZEPTE, "sicherungen", `${r.id}-bild-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageType(buf).ext}`);
   writeFileSync(file, buf);
@@ -351,6 +357,90 @@ export async function reconcileAiImages() {
   }
   saveStore(store);
   return result;
+}
+
+// ---------- Gesicherte Bilder (Weboberfläche → Sicherungen) ----------
+// Dateien in daten/rezepte/sicherungen: <rezept-id>-bild-<zeit>.<jpg|png|webp> (Bilder vor /bild-neu, /bild-alle
+// oder einer Wiederherstellung) und <rezept-id>-<zeit>.json (Rezept vor dem Übernehmen eines Verbesserungsvorschlags).
+
+const BACKUPS = () => join(REZEPTE, "sicherungen");
+const BACKUP_FILE = /^(\d+)-(bild-)?(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.(jpg|png|webp|json)$/;
+// „2026-11-02T09-12-00-000Z“ → ISO-Zeit
+const backupTime = (s) => s.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "T$1:$2:$3.$4Z");
+const KEEP_DAYS = 180;
+
+/** Pfad einer Sicherung – nur Dateinamen im erwarteten Format, kein Pfad nach außen. */
+export function backupPath(file) {
+  if (!BACKUP_FILE.test(String(file || ""))) throw new Error(L("Unbekannte Sicherung", "Unknown backup"));
+  const path = join(BACKUPS(), file);
+  if (!existsSync(path)) throw new Error(L("Sicherung nicht gefunden", "Backup not found"));
+  return path;
+}
+
+/** Alle Sicherungen, nach Rezept gruppiert (neueste zuerst), mit Rezeptnamen aus Tandoor. */
+export async function listBackups() {
+  const dir = BACKUPS();
+  const files = existsSync(dir) ? readdirSync(dir) : [];
+  const recipes = new Map((await all("/api/recipe/").catch(() => [])).map((r) => [String(r.id), r]));
+  const groups = new Map();
+  const aiReg = loadStore().ai_images || {};
+  for (const file of files) {
+    const m = BACKUP_FILE.exec(file);
+    if (!m) continue;
+    const st = statSync(join(dir, file));
+    const at = backupTime(m[3]);
+    const id = m[1];
+    const r = recipes.get(id);
+    if (!groups.has(id))
+      groups.set(id, { id: Number(id), name: r?.name || null, url: recipeUrl(id), exists: Boolean(r), has_image: Boolean(r?.image), ai: Boolean(aiReg[id]), images: [], recipes: [] });
+    const entry = { file, at, size: st.size, expires: new Date(Date.parse(at) + KEEP_DAYS * 86_400_000).toISOString() };
+    (m[4] === "json" ? groups.get(id).recipes : groups.get(id).images).push(entry);
+  }
+  const list = [...groups.values()];
+  for (const g of list) for (const k of ["images", "recipes"]) g[k].sort((a, b) => b.at.localeCompare(a.at));
+  // Rezepte mit der neuesten Sicherung zuerst
+  const newest = (g) => [...g.images, ...g.recipes].map((e) => e.at).sort().pop() || "";
+  return list.sort((a, b) => newest(b).localeCompare(newest(a)));
+}
+
+/** Aktuelles Bild eines Rezepts (für den Vergleich in der Weboberfläche) */
+export async function currentRecipeImage(id) {
+  const r = await getRecipe(Number(id));
+  if (!r.image) return null;
+  const buf = await fetchRecipeImage(r);
+  return { buf, type: imageType(buf).mime };
+}
+
+/**
+ * Gesichertes Bild wieder ins Rezept einsetzen. Das aktuelle Bild wird vorher selbst gesichert (umkehrbar).
+ * Ein wiederhergestelltes Bild ist kein KI-Bild mehr: Eintrag und Schlagwort ki-bild verschwinden.
+ */
+export async function restoreBackup(file) {
+  const path = backupPath(file);
+  const m = BACKUP_FILE.exec(file);
+  if (!m[2]) throw new Error(L("Rezept-Sicherungen (JSON) lassen sich hier nur herunterladen", "Recipe backups (JSON) can only be downloaded here"));
+  const r = await getRecipe(Number(m[1]));
+  if (isDraft(r.name)) throw new Error(L("Das Rezept ist gerade ein Entwurf", "The recipe is currently a draft"));
+  let backup = null;
+  if (r.image) backup = await backupImage(r).catch((e) => {
+    throw new Error(L(`Aktuelles Bild ließ sich nicht sichern (${e.message}) – nichts geändert`, `Could not back up the current picture (${e.message}) – nothing changed`));
+  });
+  await uploadImage(r.id, readFileSync(path), `${r.id}-wiederhergestellt`);
+  const store = loadStore();
+  const after = await getRecipe(r.id);
+  if (store.ai_images?.[r.id]) delete store.ai_images[r.id];
+  await setAiKeyword(after, false, store);
+  const fresh = await getRecipe(r.id);
+  if (store.checked[r.id]) store.checked[r.id] = fresh.updated_at;
+  if (store.rejected[r.id]) store.rejected[r.id] = fresh.updated_at;
+  saveStore(store);
+  return { ok: true, id: r.id, name: r.name, url: recipeUrl(r.id), backup: backup && backup.split(/[\\/]/).pop() };
+}
+
+/** Sicherung löschen */
+export function deleteBackup(file) {
+  rmSync(backupPath(file), { force: true });
+  return { ok: true };
 }
 
 /** Für /rezept: wie das Bild entstanden ist (oder null) */

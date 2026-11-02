@@ -48,6 +48,10 @@ Alles, was auf `main` landet, kommt von selbst auf den Server:
 
 Alte Ordner-Variante (Programm in `app/` auf dem Host, Image `node`): Dort holt der Abgleich auch `app/` und das Manifest aus GitHub und startet danach neu (`APP_SYNC`, Standard an; wirkt nur, wenn `app/` beschreibbar ist). Mit dem Image sind `app/` und `npm/` auf dem Host überflüssig und können weg.
 
+### Sicherungen in der Weboberfläche
+
+Unter **Sicherungen** (Reiter oben) stehen alle Bilder, die vor `/bild-neu`, `/bild-alle` oder einer Wiederherstellung gesichert wurden (`daten/rezepte/sicherungen`, 180 Tage), jeweils neben dem aktuellen Bild des Rezepts. **Öffnen**, **Herunterladen**, **Wiederherstellen** (setzt das Bild wieder ins Rezept; das aktuelle wird vorher gesichert, das Merkmal `ki-bild` entfällt) und **Löschen**. Rezept-Sicherungen (JSON vor einem übernommenen Verbesserungsvorschlag) lassen sich herunterladen.
+
 ### Einstellungen in der Weboberfläche
 
 Unter **Einstellungen** (Reiter oben) lassen sich Zugangsdaten und Optionen eintragen: Claude, Tandoor, Slack, KI-Fotos (Anbieter, Google-Modell, Schlüssel), Bilder pro Tag, Abgleich. Sie haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in `daten/umgebung.json` (nur für den Container-Benutzer lesbar). Leeres Feld bzw. „Eintrag löschen“ = wieder den Wert aus Portainer nehmen. Änderungen gelten nach **Jetzt neu starten**. Tokens und Schlüssel lassen sich nur ändern, wenn `WEB_PASSWORT` gesetzt ist; angezeigt werden sie nur gekürzt (`••••1234`). `WEB_PASSWORT` selbst bleibt in Portainer, damit man sich nicht aussperrt.

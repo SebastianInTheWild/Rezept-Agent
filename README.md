@@ -55,6 +55,7 @@ Old folder variant (program in `app/` on the host, image `node`): there the sync
 The web UI runs on port 8080 (`WEB_PORT`, password via `WEB_PASSWORT`).
 
 - **Schedule:** set the times, see status and last run, start agents immediately with **Start now**, send the statistics with **Send now**, and set how many recipes the quality agent checks per day (default 5, stored in `daten/rezepte/einstellungen.json`).
+- **Backups:** all pictures backed up before `/new-image`, `/all-images` or a restore (`daten/rezepte/sicherungen`, kept 180 days), next to the recipe's current picture. **Open**, **Download**, **Restore** (puts the picture back into the recipe – the current one is backed up first, the `ki-bild` mark is removed) and **Delete**. Recipe backups (JSON before an applied improvement) can be downloaded.
 - **Settings:** credentials and options – language, Claude, Tandoor, Slack, AI photos (provider, Google model, keys, style), videos, sync. They take precedence over the environment variables from Portainer and are stored in `daten/umgebung.json` (readable only by the container user). Empty field / "Delete entry" = use the value from Portainer again. Changes apply after **Restart now**. Tokens and keys can only be changed when `WEB_PASSWORT` is set and are only shown shortened (`••••1234`). `WEB_PASSWORT` itself stays in Portainer so you can't lock yourself out.
 
 ### Slack commands

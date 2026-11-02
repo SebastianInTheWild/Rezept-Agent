@@ -187,6 +187,69 @@ const send = (res, code, body, type = "application/json; charset=utf-8") => {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 };
 
+// ---------- Sicherungen (daten/rezepte/sicherungen) ----------
+
+const MIME = { jpg: "image/jpeg", png: "image/png", webp: "image/webp", json: "application/json; charset=utf-8" };
+let restoring = false;
+
+async function backupsApi(req, res, url) {
+  const { listBackups, backupPath, currentRecipeImage, restoreBackup, deleteBackup } = await import("./rezepte.mjs");
+  const json = () => /^application\/json/.test(req.headers["content-type"] || "");
+  if (req.method === "GET" && url.pathname === "/api/sicherungen") return send(res, 200, { lang: lang(), keep_days: 180, items: await listBackups() });
+
+  const file = /^\/api\/sicherungen\/datei\/([\w.-]+)$/.exec(url.pathname);
+  if (req.method === "GET" && file) {
+    let path;
+    try {
+      path = backupPath(file[1]);
+    } catch (e) {
+      return send(res, 404, { error: e.message });
+    }
+    const ext = file[1].split(".").pop();
+    const headers = { "Content-Type": MIME[ext] || "application/octet-stream", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" };
+    if (url.searchParams.has("download")) headers["Content-Disposition"] = `attachment; filename="${file[1]}"`;
+    res.writeHead(200, headers);
+    return res.end(readFileSync(path));
+  }
+
+  const current = /^\/api\/sicherungen\/aktuell\/(\d+)$/.exec(url.pathname);
+  if (req.method === "GET" && current) {
+    const img = await currentRecipeImage(current[1]).catch(() => null);
+    if (!img) return send(res, 404, { error: L("Kein aktuelles Bild", "No current picture") });
+    res.writeHead(200, { "Content-Type": img.type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    return res.end(img.buf);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/sicherungen/wiederherstellen") {
+    if (!json()) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
+    if (restoring) return send(res, 409, { error: L("Es wird gerade schon ein Bild wiederhergestellt", "A picture is already being restored") });
+    restoring = true;
+    try {
+      const { file: name } = await body(req);
+      const r = await restoreBackup(name);
+      console.log(`[web] Bild ${name} wiederhergestellt → Rezept ${r.id}${r.backup ? ` (vorheriges Bild gesichert: ${r.backup})` : ""}`);
+      return send(res, 200, { ...r, items: await listBackups() });
+    } catch (e) {
+      return send(res, 400, { error: e.message });
+    } finally {
+      restoring = false;
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/sicherungen/loeschen") {
+    if (!json()) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
+    const { file: name } = await body(req);
+    try {
+      deleteBackup(name);
+    } catch (e) {
+      return send(res, 400, { error: e.message });
+    }
+    console.log(`[web] Sicherung ${name} gelöscht`);
+    return send(res, 200, { ok: true, items: await listBackups() });
+  }
+  return send(res, 404, { error: L("Nicht gefunden", "Not found") });
+}
+
 function authorized(req) {
   const pw = process.env.WEB_PASSWORT;
   if (!pw) return true;
@@ -301,6 +364,8 @@ export function startWeb() {
         console.log(`[web] ${id} von Hand angefordert`);
         return send(res, 200, overview());
       }
+      // Sicherungen: Liste, Datei (Bild ansehen / herunterladen), aktuelles Bild, wiederherstellen, löschen
+      if (url.pathname.startsWith("/api/sicherungen")) return await backupsApi(req, res, url);
       send(res, 404, { error: L("Nicht gefunden", "Not found") });
     } catch (e) {
       send(res, 500, { error: e.message });
