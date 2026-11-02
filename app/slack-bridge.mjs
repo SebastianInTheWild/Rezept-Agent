@@ -16,7 +16,7 @@ import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./l
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { planByThread, openPlans, resendPlan, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, addSingle, openProposalFor, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
@@ -347,7 +347,7 @@ if (!process.env.SLACK_APP_TOKEN || !process.env.SLACK_BOT_TOKEN) {
 }
 log(`Slack-Brücke startet (Kanal ${CHANNEL() || "noch nicht freigegeben"}, Agent ${AGENT})`);
 // Slash-Befehle (im Manifest angelegt). Antworten sind nur für den Fragenden sichtbar.
-// Ändernde Befehle (/pruefen, /pro-tag mit Zahl) nur im Rezept-Kanal – wer dort ist, darf auch bestätigen.
+// Ändernde Befehle (/pruefen, /pruefen-rezept, /pro-tag mit Zahl) nur im Rezept-Kanal – wer dort ist, darf auch bestätigen.
 const QUALITY = process.env.REZEPT_QUALITAET_AGENT || "rezept-qualitaet";
 const COMMANDS = () => [
   ["/statistik", "", L("Rezept-Statistik: gesamt, geprüft, offen, noch zu prüfen", "Recipe statistics: total, checked, open, still to check")],
@@ -357,6 +357,7 @@ const COMMANDS = () => [
   ["/bild-neu", L("<Name | ID>", "<name | ID>"), L("Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird)", "New AI picture from Google for one recipe (replaces the old one, which is backed up first)")],
   ["/bild-alle", "", L("Alle Rezeptbilder mit Google neu erzeugen – mit doppelter Rückfrage, läuft im Hintergrund", "Recreate all recipe pictures with Google – asks twice, runs in the background")],
   ["/pruefen", L("[Anzahl]", "[count]"), L("Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)", "Start the quality check now (with a count: that many recipes on top of today's amount)")],
+  ["/pruefen-rezept", L("<Name | ID>", "<name | ID>"), L("Ein Rezept gezielt neu prüfen – auch wenn es schon geprüft ist, zählt nicht zum Tageswert", "Check one recipe again – even if it was already checked, does not count towards the daily amount")],
   ["/wochenplan", L("[Tage] [Wünsche]", "[days] [wishes]"), L("Essensplan aus euren Rezepten vorschlagen, z. B. `/wochenplan 5 vegetarisch, schnell` – mit einem Klick in Tandoor-Essensplan und Einkaufsliste", "Suggest a meal plan from your recipes, e.g. `/meal-plan 5 vegetarian, quick` – one click into the Tandoor meal plan and shopping list")],
   ["/was-kochen", L("<Zutaten>", "<ingredients>"), L("Rezepte mit diesen Zutaten finden, z. B. `/was-kochen Zucchini, Feta`", "Find recipes with these ingredients, e.g. `/what-to-cook zucchini, feta`")],
   ["/pro-tag", L("[Anzahl]", "[count]"), L("Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern", "How many recipes are checked per day – show or change")],
@@ -548,6 +549,28 @@ const commands = {
     log(`/pruefen ${arg} von ${c.user_id} → ${p.batch.length} Rezepte`);
     return L(`🔍 Die Qualitätsprüfung startet in spätestens 30 Sekunden mit ${rezepte(p.batch.length)}. Die Vorschläge erscheinen im Kanal.`, `🔍 The quality check starts within 30 seconds with ${rezepte(p.batch.length)}. The proposals appear in the channel.`);
   },
+
+  "/pruefen-rezept": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    const q = c.text.trim();
+    if (!q) return L("Welches Rezept? Beispiel: `/pruefen-rezept Rahmwirsing` oder `/pruefen-rezept 149567`", "Which recipe? Example: `/check-recipe lasagna` or `/check-recipe 149567`");
+    const { hit, hits } = await resolveRecipe(q);
+    if (!hit) {
+      if (!hits.length) return L(`Kein Rezept zu „${esc(q)}“ gefunden.`, `No recipe found for “${esc(q)}”.`);
+      return [L(`🔎 Mehrere Treffer zu „${esc(q)}“ – bitte genauer, oder mit ID:`, `🔎 Several hits for “${esc(q)}” – please be more specific, or use the ID:`), ...hits.map((h) => `• ${link(h.url, h.name)} · \`${cmd("/pruefen-rezept")} ${h.id}\``)].join("\n");
+    }
+    const name = link(hit.url, hit.name);
+    const open = openProposalFor(hit.id);
+    if (open) {
+      const url = await permalink(open);
+      return L(`⏳ Zu ${name} gibt es schon einen offenen Vorschlag${url ? ` (<${url}|ansehen>)` : ""}. Entscheide den erst.`, `⏳ There is already an open proposal for ${name}${url ? ` (<${url}|view>)` : ""}. Decide it first.`);
+    }
+    const added = addSingle(hit.id);
+    log(`/pruefen-rezept ${hit.id} (${hit.name}) von ${c.user_id}${added ? "" : " – war schon vorgemerkt"}`);
+    if (!hasStartRequest(QUALITY)) requestStart(QUALITY, "slack");
+    if (readStatus(QUALITY, "status.json")?.running) return L(`🔍 ${name} ist vorgemerkt. Die Qualitätsprüfung läuft gerade – danach kommt es als Erstes dran.`, `🔍 ${name} is queued. The quality check is running right now – it comes first afterwards.`);
+    return L(`🔍 ${name} wird in spätestens 30 Sekunden geprüft. Der Vorschlag erscheint im Kanal.`, `🔍 ${name} will be checked within 30 seconds. The proposal appears in the channel.`);
+  },
 };
 
 async function onCommand(c) {
@@ -557,7 +580,7 @@ async function onCommand(c) {
   if (!run) return respond(c.response_url, L(`Unbekannter Befehl ${c.command}. \`/hilfe\` zeigt alle Befehle.`, `Unknown command ${c.command}. \`/help\` shows all commands.`));
   const text = await run({ ...c, command: name, text: c.text || "" }).catch((e) => `⚠️ ${e.message}`);
   await respond(c.response_url, text);
-  if (!["/pro-tag", "/pruefen", "/ohne-bild"].includes(name)) log(`${c.command} von ${c.user_id}`);
+  if (!["/pro-tag", "/pruefen", "/pruefen-rezept", "/ohne-bild"].includes(name)) log(`${c.command} von ${c.user_id}`);
 }
 
 socket({ onEvent, onAction, onCommand, log });

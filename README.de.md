@@ -18,7 +18,7 @@ Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (
 
 **Bilder beim Prüfen:** Auch Verbesserungsvorschläge bringen das Bild auf den einheitlichen Stil – hat das Original schon ein KI-Bild im aktuellen Stil, bleibt es, sonst erzeugt der Agent ein neues. Beim **Übernehmen** wird das alte Bild vorher gesichert (`daten/rezepte/sicherungen`, wie bei `/bild-neu`); klappt die Sicherung nicht, bleibt das alte Bild. Jeder Vorschlag in Slack hat den Knopf **🎨 Neues Bild** – damit lässt sich ein Bild nachträglich (neu) erzeugen, z. B. wenn es beim Anlegen nicht geklappt hat; das zählt nicht gegen `BILD_PRO_TAG`.
 
-**Sprache:** Deutsch oder Englisch – in der Weboberfläche unter **Einstellungen → Allgemein → Sprache** (oder `SPRACHE=de|en`). Die Sprache gilt für neue Rezepte und Verbesserungsvorschläge (der Agent übersetzt vorhandene Rezepte nach und nach, wenn er sie prüft), für alle Slack-Nachrichten und Knöpfe und für die Weboberfläche. Für Englisch gibt es einen eigenen Standard ([`agents/rezept-standard.en.md`](agents/rezept-standard.en.md)) mit englischen Einheiten (`tbsp`, `tsp`, `piece` …). Die Slack-Befehle heißen auf Englisch `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/per-day`, `/neurons`, `/help`; die deutschen Namen funktionieren weiter. Mit `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` trägt die Brücke die englischen Befehle selbst in Slack ein. Status-Schlagwörter in Tandoor (`geprüft`, `vorschlag-offen`, `nicht-bearbeiten`) und die Logs bleiben deutsch.
+**Sprache:** Deutsch oder Englisch – in der Weboberfläche unter **Einstellungen → Allgemein → Sprache** (oder `SPRACHE=de|en`). Die Sprache gilt für neue Rezepte und Verbesserungsvorschläge (der Agent übersetzt vorhandene Rezepte nach und nach, wenn er sie prüft), für alle Slack-Nachrichten und Knöpfe und für die Weboberfläche. Für Englisch gibt es einen eigenen Standard ([`agents/rezept-standard.en.md`](agents/rezept-standard.en.md)) mit englischen Einheiten (`tbsp`, `tsp`, `piece` …). Die Slack-Befehle heißen auf Englisch `/stats`, `/open`, `/recipe`, `/no-image`, `/new-image`, `/all-images`, `/check`, `/check-recipe`, `/per-day`, `/neurons`, `/help`; die deutschen Namen funktionieren weiter. Mit `SLACK_APP_ID`/`SLACK_CONFIG_TOKEN` trägt die Brücke die englischen Befehle selbst in Slack ein. Status-Schlagwörter in Tandoor (`geprüft`, `vorschlag-offen`, `nicht-bearbeiten`) und die Logs bleiben deutsch.
 
 ## Einrichten mit Portainer
 
@@ -91,7 +91,7 @@ Unter **Einstellungen** (Reiter oben) lassen sich Zugangsdaten und Optionen eint
 
 Die Weboberfläche läuft auf Port 8080 (`WEB_PORT`, Passwort über `WEB_PASSWORT`). Dort stellst du die Zeiten ein, siehst Status und letzten Lauf und startest Agenten mit **Jetzt starten** sofort. Die Rezept-Statistik schickst du mit **Jetzt senden** sofort in den Slack-Kanal. Bei „Rezept-Qualität“ stellst du ein, wie viele Rezepte pro Tag geprüft werden (Standard 5, gespeichert in `daten/rezepte/einstellungen.json`).
 
-Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`, `/bild-neu`, `/bild-alle` und `/pro-tag <Zahl>` nur im Rezept-Kanal; englische Namen siehe oben):
+Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/pruefen-rezept`, `/ohne-bild`, `/bild-neu`, `/bild-alle` und `/pro-tag <Zahl>` nur im Rezept-Kanal; englische Namen siehe oben):
 
 | Befehl | Was er macht |
 | --- | --- |
@@ -102,6 +102,7 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/ohne-bild`
 | `/bild-neu <Name \| ID>` | Neues KI-Bild mit Google (`GOOGLE_BILD_MODELL`) für ein Rezept, auch wenn es schon ein Foto hat. Bei mehreren Treffern zeigt er die Liste mit IDs. |
 | `/bild-alle` | Rezeptbilder mit Google neu erzeugen: **alle**, **nur ohne KI-Bild** (eigene Fotos, Rezepte ohne Bild) oder **nur alter Stil** (KI-Bilder, die vor einer Änderung an `agents/bild-stil.md` entstanden sind). Fragt zweimal nach (mit Anzahl und geschätzten Kosten), nur wer fragt, darf bestätigen. Läuft im Hintergrund mit Fortschritt und Knopf **⏹️ Anhalten**, nach einem Neustart geht es weiter. Nach 3 Fehlern hintereinander (z. B. Google-Kontingent) hält er an. |
 | `/pruefen [Anzahl]` | Qualitätsprüfung jetzt starten; mit Anzahl darf er heute so viele Rezepte zusätzlich zum Tageswert prüfen |
+| `/pruefen-rezept <Name \| ID>` | Ein Rezept gezielt sofort neu prüfen – auch wenn es schon geprüft, abgelehnt oder auf „nicht bearbeiten“ gesetzt ist; zählt nicht zum Tageswert |
 | `/pro-tag [Anzahl]` | Rezepte pro Tag anzeigen oder ändern (wie in der Weboberfläche) |
 | `/neuronen` | Heute noch freie Cloudflare-Neuronen für KI-Fotos |
 | `/google` | Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten, heute, Vormonat und – mit `GOOGLE_GUTHABEN` – Rest-Guthaben. Bei 80 % kommt einmal eine Warnung in den Kanal. Geschätzt aus den eigenen Aufrufen (Google liefert den Kontostand nicht über den API-Schlüssel). |
