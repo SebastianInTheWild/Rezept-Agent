@@ -3,7 +3,7 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
 import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
@@ -683,6 +683,9 @@ export async function propose() {
     // Stil, wird es übernommen, sonst entsteht ein neues; das alte wird beim Übernehmen gesichert (wie bei /bild-neu).
     // Mit BILD_EINHEITLICH=aus: Foto der Quelle bzw. Standbild aus dem Video, Verbesserungen behalten das Foto des Originals.
     const uniform = !/^(aus|nein|off|0)$/i.test((process.env.BILD_EINHEITLICH || "an").trim());
+    // Video-Import: das Standbild vom fertigen Gericht (image_file = …/inbox/video-…jpg) dient als Vorlage fürs KI-Bild
+    const reference = videoFrame(d.image_file);
+    if (reference) p.image_reference = reference;
     if (uniform && kind === "import") delete d.image_file, delete d.image_url;
     let hasImage = false;
     if (kind === "quality" && orig?.image) {
@@ -708,7 +711,7 @@ export async function propose() {
       if (!imageReady()) warnings.push(`${L("Kein Bild", "No picture")} – ${imageSetupHint()}`);
       else
         try {
-          const jpg = await generateImage(d, REZEPTE);
+          const jpg = await generateImage(d, REZEPTE, { reference: p.image_reference });
           await uploadImage(draft.id, jpg, id);
           mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
           p.generated_image = join(REZEPTE, "bilder", `${id}.${imageType(jpg).ext}`);
@@ -795,7 +798,7 @@ const actions = (p) => ({
 export async function regenerateDraftImage(id) {
   const { store, p } = openProposal(id);
   const draft = await getRecipe(p.draft_id);
-  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true });
+  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true }); // ohne Vorlage aus dem Video – bewusst die normale Erzeugung
   if (DRY) return { ok: true, dry: true, name: p.name };
   await uploadImage(p.draft_id, jpg, id);
   mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
@@ -933,6 +936,14 @@ export async function rejectProposal(id, user, { skip = false } = {}) {
 }
 
 // Erzeugtes Foto wird nach der Entscheidung nicht mehr gebraucht (es liegt dann in Tandoor oder ist verworfen)
+/** Standbild aus einem Video (inbox/video-….jpg) – sonst null. Fotos aus Slack (z. B. Kochbuchseiten) sind keine Vorlage. */
+function videoFrame(path) {
+  if (!path) return null;
+  const inbox = resolve(REZEPTE, "inbox");
+  const file = resolve(path);
+  return file.startsWith(inbox + "/") && /^video-[\w-]+\.jpe?g$/i.test(basename(file)) && existsSync(file) ? file : null;
+}
+
 function dropImage(p) {
   if (p.generated_image) rmSync(p.generated_image, { force: true });
   p.generated_image = null;
