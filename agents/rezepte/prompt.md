@@ -14,7 +14,9 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
    - HelloFresh-Link: ebenfalls `node tandoor.mjs fetch-url` – das Werkzeug liest HelloFresh selbst (`source: "HelloFresh"`). Du bekommst:
      - `yields`: die Zutaten mit Mengen je Portionszahl (`servings`). Nimm die Variante für 2 Portionen, sonst die kleinste; `servings` im Entwurf = diese Zahl. Zutaten mit `amount: null` sind „nach Geschmack“ (`no_amount`).
      - `steps`: Schritte, bei `ingredients` steht, welche Zutaten im Schritt verwendet werden – verteile die Zutaten entsprechend. Ohne Angabe ordne sie dem Schritt zu, in dem sie zuerst vorkommen.
-     - `devices`: Utensilien → `devices`. `working_time` (Minuten), `total_time` → `waiting_time` = total − working.
+     - `devices`: Utensilien → `devices`. `working_time` und `waiting_time` (Minuten) übernehmen.
+     - In den Schritten stehen Mengen für mehrere Portionsgrößen, z. B. „500 ml [750 ml | 1000 ml] Wasser“: Nimm den ersten Wert (2 Portionen) und lass die Klammer weg.
+     - `pantry: true` = Vorratszutat (Salz, Öl …), gehört trotzdem ins Rezept.
      - HelloFresh-Einheiten wie „Stück“, „Packung“, „Bund“, „Zehe“ auf die erlaubten Einheiten abbilden; Packungsangaben (z. B. „1 Packung Sahne“) mit der üblichen Menge in g/ml ergänzen und in `changes` nennen.
      - `image_file`: das Foto des Gerichts – ansehen und daraus `image_prompt` schreiben.
      - `keywords`/`allergens`: Anhaltspunkte für Schlagwörter (nur vorhandene bzw. höchstens 2 neue).
