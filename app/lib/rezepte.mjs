@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
-import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
+import { compressImage, generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { slack, post, update, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
@@ -279,9 +279,10 @@ async function fetchRecipeImage(r) {
   return buf;
 }
 
-// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
+// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt) – verkleinert als JPEG,
+// außer SICHERUNG_BILDER_KOMPRIMIEREN=aus
 async function backupImage(r) {
-  const buf = await fetchRecipeImage(r);
+  const buf = await compressImage(await fetchRecipeImage(r));
   mkdirSync(join(REZEPTE, "sicherungen"), { recursive: true });
   const file = join(REZEPTE, "sicherungen", `${r.id}-bild-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageType(buf).ext}`);
   writeFileSync(file, buf);

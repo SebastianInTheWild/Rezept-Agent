@@ -8,8 +8,10 @@
 // Verbrauchte Neuronen: Cloudflare-GraphQL (Token braucht zusätzlich „Account Analytics: Read“), Kontingent CF_NEURONEN_PRO_TAG (Standard 10.000).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { L, locale } from "./i18n.mjs";
@@ -235,3 +237,31 @@ export async function lastImageNote() {
 // Bildformat an den ersten Bytes erkennen (FLUX liefert je nach Modell JPEG oder PNG)
 export const imageType = (buf) =>
   buf[0] === 0x89 && buf[1] === 0x50 ? { mime: "image/png", ext: "png" } : buf[0] === 0x52 && buf[8] === 0x57 ? { mime: "image/webp", ext: "webp" } : { mime: "image/jpeg", ext: "jpg" };
+
+// ---------- Bilder für Sicherungen verkleinern ----------
+// SICHERUNG_BILDER_KOMPRIMIEREN: leer/an = JPEG (Qualität ca. 85 %), höchstens SICHERUNG_BILD_BREITE Pixel breit (Standard 1600);
+// aus = Originaldatei. Braucht ffmpeg (im Image enthalten); ohne ffmpeg oder wenn es nicht kleiner wird, bleibt das Original.
+export const backupCompression = () => !/^(aus|nein|off|0)$/i.test((process.env.SICHERUNG_BILDER_KOMPRIMIEREN || "").trim());
+const backupWidth = () => {
+  const n = Number((process.env.SICHERUNG_BILD_BREITE || "").trim());
+  return Number.isInteger(n) && n >= 320 ? n : 1600;
+};
+/** Bild verkleinern (JPEG). Liefert das Original, wenn es ausgeschaltet ist, ffmpeg fehlt oder es nicht mindestens 10 % spart. */
+export async function compressImage(buf) {
+  if (!backupCompression() || !buf?.length) return buf;
+  const dir = mkdtempSync(join(tmpdir(), "rezept-bild-"));
+  try {
+    const src = join(dir, `ein.${imageType(buf).ext}`);
+    const out = join(dir, "aus.jpg");
+    writeFileSync(src, buf);
+    await new Promise((res, rej) =>
+      execFile(process.env.FFMPEG || "ffmpeg", ["-v", "error", "-y", "-i", src, "-frames:v", "1", "-vf", `scale='min(${backupWidth()},iw)':-2`, "-q:v", "4", out], { timeout: 60_000 }, (e) => (e ? rej(e) : res())),
+    );
+    const small = readFileSync(out);
+    return small.length && small.length < buf.length * 0.9 ? small : buf;
+  } catch {
+    return buf;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}

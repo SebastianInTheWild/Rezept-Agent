@@ -75,7 +75,7 @@ Every day (default 03:30, changeable in the schedule or via **Back up now**) the
 
 Only changes are transferred. If suddenly more than half of the recipes (or all) are missing, the sync stops instead of marking everything as deleted – e.g. when Tandoor is unreachable. Deleted recipes and errors are reported in the Slack channel.
 
-**Setup:** create a **private, empty** repo on GitHub (e.g. `recipe-backup`), then under GitHub → Settings → Developer settings → **Fine-grained tokens** create a token for this repo only with **Contents: Read and write**. Enter `BACKUP_REPO` (`owner/name`) and `BACKUP_TOKEN` in the web UI under Settings → GitHub backup and restart. Pictures take space (AI pictures about 1–2 MB each); a few hundred MB are normal for several hundred recipes.
+**Setup:** create a **private, empty** repo on GitHub (e.g. `recipe-backup`), then under GitHub → Settings → Developer settings → **Fine-grained tokens** create a token for this repo only with **Contents: Read and write**. Enter `BACKUP_REPO` (`owner/name`) and `BACKUP_TOKEN` in the web UI under Settings → GitHub backup and restart. Pictures are shrunk for the backup: JPEG at about 85 % quality, at most 1600 pixels wide (typically a few hundred KB instead of 1–2 MB per AI picture). This applies to the recipe pictures in GitHub and to the picture backups before replacing (`daten/rezepte/sicherungen`). Configurable under Settings → GitHub backup (`SICHERUNG_BILDER_KOMPRIMIEREN=aus` keeps the originals, `SICHERUNG_BILD_BREITE` changes the width). The first run afterwards uploads all recipe pictures once in the smaller form; the large originals stay in the repo's Git history.
 
 ### Meal plan and what to cook
 

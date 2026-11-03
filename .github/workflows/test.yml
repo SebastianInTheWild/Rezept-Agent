@@ -35,6 +35,10 @@ jobs:
           node --check /tmp/web.js
           node -e 'for (const f of require("fs").readdirSync("agents",{withFileTypes:true})) if (f.isDirectory() && !f.name.startsWith("_")) JSON.parse(require("fs").readFileSync(`agents/${f.name}/agent.json`,"utf8"))'
 
+      # ffmpeg wie im Docker-Image – für den Test „Bilder für Sicherungen verkleinern“
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       - name: Tests
         run: node --test --test-force-exit --test-reporter=spec "test/*.test.mjs"
 
