@@ -16,6 +16,7 @@ installFetch([
   [TANDOOR, tandoor.handle],
   ["https://slack.com/api/", slack.handle],
   ["https://slack.test/", slack.handle],
+  ["https://files.slack.test/", async () => new Response(Buffer.from("AUDIO"))],
 ]);
 const socket = fakeSocket();
 
@@ -65,6 +66,7 @@ test("/rezept sucht mit Status", async () => {
 test("/hilfe listet alle Befehle", async () => {
   const r = await command("/hilfe");
   for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pruefen-rezept", "/pro-tag", "/wochenplan", "/was-kochen", "/hilfe"]) assert.ok(r.includes(c), c);
+  assert.match(r, /_Version dev_/);
 });
 
 test("/was-kochen findet Rezepte über Tandoor-Lebensmittel", async () => {
@@ -177,6 +179,28 @@ test("/offen neu schickt offene Vorschläge und Pläne mit aktuellen Knöpfen ne
   assert.notEqual(after.proposals.p2.slack.last_ts, "8.0");
   const { proposalByThread } = await import(APP("lib/rezepte.mjs"));
   assert.equal(proposalByThread("8.0")?.id, "p2");
+});
+
+test("Sprachnachricht im Kanal → Auftrag mit der Aufnahme (media), auch ohne Text", async () => {
+  socket.send({ type: "events_api", payload: { event: { type: "message", subtype: "file_share", user: "U1", channel: "C1", ts: "20.0", text: "", files: [{ mimetype: "audio/mp4", filetype: "mp4", subtype: "slack_audio", url_private: "https://files.slack.test/voice" }] } } });
+  const file = join(data, "rezepte", "auftraege", "20-0.json");
+  assert.ok(await until(() => existsSync(file)), "Auftrag angelegt statt Hilfe");
+  const job = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(job.media.length, 1);
+  assert.match(job.media[0], /20-0-a1\.m4a$/, "Audio als .m4a gespeichert");
+  assert.equal(readFileSync(job.media[0], "utf8"), "AUDIO");
+});
+
+test("Knopf „Wie war's?“: Bewertung ins Kochprotokoll, Nachricht ohne Knöpfe", async () => {
+  const file = join(data, "rezepte", "vorschlaege.json");
+  const store = JSON.parse(readFileSync(file, "utf8"));
+  store.cooked = { 77: { id: 77, recipe_id: 1, name: "Lasagne", servings: 2, date: "2026-11-03", slack: { channel: "C1", ts: "21.0" } } };
+  writeFileSync(file, JSON.stringify(store));
+  const before = slack.updates.length;
+  socket.send({ type: "interactive", payload: { type: "block_actions", user: { id: "U2" }, channel: { id: "C1" }, message: { ts: "21.0", text: "Wie war Lasagne?", blocks: [] }, actions: [{ action_id: "rz_cook_5", value: "77" }] } });
+  assert.ok(await until(() => slack.updates.length > before));
+  assert.match(JSON.stringify(slack.updates.at(-1).blocks), /⭐⭐⭐⭐⭐ von <@U2>/);
+  assert.deepEqual(tandoor.cookLogs.map((l) => [l.recipe, l.rating]), [[1, 5]]);
 });
 
 test("Knöpfe aus fremden Kanälen werden ignoriert", async () => {

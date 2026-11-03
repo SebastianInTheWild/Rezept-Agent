@@ -113,6 +113,21 @@ test("Bilder für Sicherungen verkleinern mit ffmpeg: großes PNG → kleineres 
   }
 });
 
+test("Version: aus dem Image (Zeitpunkt + Commit), sonst dev", async () => {
+  const v = await import(APP("lib/version.mjs"));
+  delete process.env.APP_RELEASE;
+  delete process.env.APP_VERSION;
+  assert.equal(v.versionText(), "dev");
+  assert.equal(v.commitUrl(), "");
+  process.env.APP_RELEASE = "2026-11-03 10-11";
+  process.env.APP_VERSION = "4ecc18d6a016189a63b3677a6517f3fc2837151f";
+  assert.equal(v.versionText(), "2026-11-03 10-11 (4ecc18d)");
+  assert.match(v.commitUrl(), /\/commit\/4ecc18d6a/);
+  process.env.APP_VERSION = "dev";
+  assert.equal(v.versionText(), "2026-11-03 10-11", "lokal gebaut ohne Commit");
+  delete process.env.APP_RELEASE;
+  delete process.env.APP_VERSION;
+});
 test("Claude-Limit erkennen", () => {
   for (const s of ["Claude AI usage limit reached|1730000000", "You've hit your limit · resets 3pm (Europe/Berlin)", "API Error: 429 rate_limit_error", "Error: Overloaded"]) assert.ok(runAgent.isLimitError(s), s);
   for (const s of ["Error: tool failed", "", "propose: ok"]) assert.ok(!runAgent.isLimitError(s), s);

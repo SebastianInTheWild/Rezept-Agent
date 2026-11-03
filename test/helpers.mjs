@@ -25,6 +25,9 @@ export function setupEnv(extra = {}) {
     TANDOOR_TOKEN: "test-token",
     TZ: "Europe/Berlin",
     REZEPT_STATISTIK: "aus",
+    KOCH_FRAGE: "aus",
+    WOCHENRUECKBLICK: "aus",
+    TOKEN_PRUEFUNG: "aus",
     AGENTS_SYNC: "aus",
     APP_SYNC: "aus",
     ...extra,
@@ -74,6 +77,8 @@ export function fakeTandoor(recipes = []) {
     nextId: 1000,
     calls: [],
     mealPlans: [],
+    cookLogs: [],
+    accessTokens: [],
     mealTypes: [{ id: 1, name: "Abendessen", order: 0 }],
     // wie die Open-Data-Typen einer neuen Tandoor-Instanz (Fett und Kalorien vorhanden, der Rest fehlt)
     propertyTypes: [{ id: 1, name: "Fat", unit: "g", open_data_slug: "property-fat" }, { id: 2, name: "Calories", unit: "kcal", open_data_slug: "property-calories" }, { id: 3, name: "Saturated Fat", unit: "g" }],
@@ -150,6 +155,13 @@ export function fakeTandoor(recipes = []) {
       return json(plan, 201);
     }
     if (path === "/api/meal-plan/") return page(t.mealPlans);
+    if (path === "/api/cook-log/" && method === "POST") {
+      const log = { ...body, id: t.cookLogs.length + 1 };
+      t.cookLogs.push(log);
+      return json(log, 201);
+    }
+    if (path === "/api/cook-log/") return page(t.cookLogs);
+    if (path === "/api/access-token/") return json(t.accessTokens);
     if ((m = /^\/api\/recipe\/(\d+)\/shopping\/$/.exec(path))) {
       t.shopping.push({ recipe: Number(m[1]), ...body });
       return json({});

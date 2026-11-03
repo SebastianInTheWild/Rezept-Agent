@@ -6,11 +6,14 @@ A Docker container in which AI agents (Claude Code) look after the recipes in [T
 
 | Agent / service | When | What it does |
 |---|---|---|
-| `rezepte` | via Slack | Creates recipe drafts in Tandoor from links (HelloFresh too), Instagram reels, YouTube shorts, photos and pasted recipe text in the recipe channel, and revises them on request. Started by the Slack bridge, not by the schedule. |
+| `rezepte` | via Slack | Creates recipe drafts in Tandoor from links (HelloFresh too), Instagram reels, YouTube shorts, photos, voice messages and pasted recipe text in the recipe channel, and revises them on request. Started by the Slack bridge, not by the schedule. |
 | `rezept-qualitaet` | 12:00 | Checks recipes without a status keyword against the standard (`agents/rezept-standard.md` / `.en.md`) and sends improvements to Slack as proposals (5 per run, at most 10 open). |
 | `rezept-statistik` | 19:00 | Posts the daily numbers (total, checked, open, without picture) to the Slack channel. Not an agent – the Slack bridge does this. |
 | `wochenplan` | via Slack (optionally e.g. Sun 17:00) | Suggests a meal plan from your recipes; one click puts it into the Tandoor meal plan and shopping list. |
 | `rezept-sicherung` | 03:30 | Backs up all recipes, deleted recipes and picture backups to a private GitHub repo. Not an agent. |
+| `koch-frage` | 20:30 | “How was it?”: asks in Slack for a rating (⭐1–5) of today's planned dishes for the Tandoor cook log. Not an agent. |
+| `wochenrueckblick` | Sun 19:30 | Weekly review to the Slack channel: new recipes, proposals, what was cooked and rated, collection, Google cost. Not an agent. |
+| `token-pruefung` | 09:05 | Checks all credentials and warns in Slack in good time before tokens expire (web UI → Status). Not an agent. |
 
 Nothing is changed in Tandoor without you: every import and every improvement first becomes a draft, and a person decides in Slack with **Apply / Discard / Leave as is**.
 
@@ -82,6 +85,19 @@ Only changes are transferred. If suddenly more than half of the recipes (or all)
 - **`/meal-plan [days] [wishes]`** – the `wochenplan` agent picks from your recipes: main dishes only, varied (meat/fish/vegetarian, no main ingredient twice in a row), quick on weekdays, seasonal, well rated, nothing cooked or planned recently. Wishes take precedence. **🛒 To meal plan + shopping list** puts it into the Tandoor meal plan (meal type `WOCHENPLAN_MAHLZEIT`, default dinner; `WOCHENPLAN_PORTIONEN`, default 2) and the ingredients onto the shopping list. A reply in the thread swaps single dishes.
 - **Automatic:** set e.g. `So 17:00` for the "Meal plan" agent in the schedule – then a plan for the next 7 days arrives in the channel every Sunday.
 - **`/what-to-cook zucchini, feta`** – recipes containing these ingredients (Tandoor foods), those with all first. No Claude needed.
+- **“How was it?”** – at 20:30 (`koch-frage` in the schedule) the bridge asks about every dish on today's Tandoor meal plan: **⭐1–5** or **Not cooked**. The rating goes into Tandoor's cook log; Tandoor derives the rating and "last cooked" from it – exactly what the meal plan picks by. Works for entries planned directly in Tandoor too. Each question comes once, a second click doesn't add anything twice.
+- **Weekly review** – Sundays at 19:30 (`wochenrueckblick`): new recipes, applied and discarded proposals, what's still open, what was cooked and how it was rated (with the best dish), the collection and the estimated Google cost of the week. Also **Send now** in the web UI.
+
+### Duplicate recipes and voice messages
+
+- **Duplicates:** if a new recipe has (almost) the same name as an existing one – equal without punctuation and additions in brackets, or one name fully contained in the other ("Lasagne" / "Lasagne Bolognese") – the proposal shows "🔁 Might already exist" with a link. The button **🔁 As improvement of "…"** turns it into an improvement for the existing recipe: applying replaces its content (old version and old picture are backed up) instead of creating a second recipe.
+- **Voice message:** just speak into the recipe channel (Slack audio clip) or send a video file. Gemini (`GEMINI_API_KEY`) listens to / watches the recording and writes down ingredients, amounts and steps, unclear parts separately; the agent builds the draft from it (missing amounts estimated and listed in the changes). Videos get stills like reels.
+
+### Status and expiring tokens
+
+The web UI has a **Status** tab: for Tandoor, Slack, Claude, Google Gemini, the GitHub backup, Cloudflare and OpenAI it shows whether the connection works, the credentials are valid and when the token expires – with a hint where to renew and enter it. Expiry dates come from the service itself where possible: GitHub (fine-grained token), Cloudflare and Tandoor. Slack bot tokens and Google keys don't expire. For the Claude token from `claude setup-token` nobody tells: the page assumes 365 days from first use (`CLAUDE_TOKEN_GUELTIG_TAGE`) – it gets exact when you enter the date as `CLAUDE_TOKEN_ABLAUF` under Settings → Claude. How long the token really lasts is up to Anthropic, which is why the assumption is configurable.
+
+**Message in good time:** every morning at 09:05 (`token-pruefung`) the bridge checks everything and posts to the channel when a token expires within 14 days (`TOKEN_WARNUNG_TAGE`), again 3 days before and on the day – and once when credentials don't work (any more). A new token resets the warnings. Only a fingerprint of the token is stored, never the token itself (`daten/token-status.json`).
 
 ### Nutrition
 
@@ -125,7 +141,9 @@ Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-i
 
 With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.
 
-**Restart message:** after every container start (update, restart from the web UI, server reboot, crash) the agent posts to the recipe channel that it is running again – with the version (commit) and whether it was an update ("from … to …"). Turn it off with `NEUSTART_MELDUNG=aus` or in the web UI under Settings → Slack.
+**Restart message:** after every container start (update, restart from the web UI, server reboot, crash) the agent posts to the recipe channel that it is running again – with the version and whether it was an update ("from … to …"). Turn it off with `NEUSTART_MELDUNG=aus` or in the web UI under Settings → Slack.
+
+**Version:** every image carries a version made from the time of the commit on main, e.g. `2026-11-03 10-11` (German time). Every merged pull request that changes the program automatically gets a new version; the weekly rebuild with a fresh Claude Code keeps it. The version is shown at the top right of the web UI (click to see the commit), in the restart message, under `/help` and in the container log at start. Every version is also an image tag, e.g. `ghcr.io/sebastianinthewild/rezept-agent:2026-11-03_10-11` – set `IMAGE_TAG` to it to go back to a specific version. Built locally it is called `dev`. The [CHANGELOG](CHANGELOG.md) lists every change under its version with pull request and image tag; after every merge GitHub Actions adds the new version there by itself.
 
 ## Recipes from HelloFresh
 

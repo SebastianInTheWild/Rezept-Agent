@@ -6,14 +6,14 @@
 //   KI_ANBIETER          Reihenfolge, z. B. „claude,google“ (Standard: Claude, beim Claude-Limit Gemini), „google,claude“
 //                        (Gemini zuerst, bei Fehlern Claude), „google“ oder „claude“ (nur dieser). Gemini braucht GEMINI_API_KEY.
 //   GEMINI_TEXT_MODELL   leer = gemini-flash-latest
-// Abgedeckt (agent.json → "fallback"): „rezepte“ (Import aus Link, HelloFresh, Reel/Short, Foto, Text; Änderungswünsche),
+// Abgedeckt (agent.json → "fallback"): „rezepte“ (Import aus Link, HelloFresh, Reel/Short, Foto, Sprachnachricht, Text; Änderungswünsche),
 // „qualitaet“ (Verbesserungsvorschläge), „wochenplan“ (Plan und Änderungswünsche).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { getRecipe, simplify } from "./tandoor.mjs";
-import { context, pending, search, fetchUrl, fetchVideo, propose, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./rezepte.mjs";
+import { context, pending, fetchUrl, fetchVideo, fetchMedia, propose, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./rezepte.mjs";
 import { planContext, proposePlan, PLAN_FILE } from "./wochenplan.mjs";
 import { isVideoUrl } from "./video.mjs";
 import { imageType } from "./bild.mjs";
@@ -160,6 +160,16 @@ async function importJob(agent, log, reason) {
         if (s.image_file) images.push(s.image_file);
       }
     }
+    // Sprachnachrichten und Video-Dateien wie mit fetch-media
+    if (job.media?.length) {
+      log(`Gemini: ${job.media.length} Aufnahme(n) auswerten`);
+      const m = await fetchMedia().catch((e) => ({ media: [{ ok: false, msg: e.message }] }));
+      for (const x of m.media) {
+        data.sources.push({ type: x.kind === "video" ? "video-datei" : "sprachnachricht", ...x });
+        const frames = x.frames || [];
+        images.push(...frames.filter((f) => /-fertig\.jpe?g$/.test(f.file)).map((f) => f.file), ...frames.filter((f) => !/-fertig\./.test(f.file)).slice(0, 3).map((f) => f.file));
+      }
+    }
   }
   const shown = images.filter((f) => existsSync(f)).slice(0, MAX_IMAGES);
   data.attached_images = shown;
@@ -169,9 +179,7 @@ async function importJob(agent, log, reason) {
     return { ok: true, note: L("Gemini: nichts angelegt (Antwort im Thread)", "Gemini: nothing created (reply in thread)") };
   }
   if (r.error) return { ok: false, note: r.error };
-  // Doppelte erkennen wie der Agent mit „search“ – als Hinweis im Log (der Vorschlag steht schon)
-  const dup = (await search(r.draft.name).catch(() => [])).filter((x) => x.name.toLowerCase() === String(r.draft.name).toLowerCase());
-  if (dup.length) log(`Gemini: „${r.draft.name}“ gibt es schon (#${dup.map((x) => x.id).join(", #")})`);
+  // Doppelte zeigt propose() selbst im Vorschlag (mit Knopf „Als Verbesserung für …“)
   return { ok: true, note: L(`Gemini: Vorschlag „${r.draft.name}“`, `Gemini: proposal “${r.draft.name}”`) };
 }
 

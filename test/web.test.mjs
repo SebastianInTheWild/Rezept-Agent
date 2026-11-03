@@ -37,6 +37,38 @@ test("Seite und Zeitplan", async () => {
   const plan = await (await local("/api/plan")).json();
   assert.ok(plan.items.some((i) => i.id === "rezept-qualitaet"));
   assert.ok(plan.items.some((i) => i.id === "rezept-statistik"));
+  assert.equal(plan.version, "dev", "ohne Version aus dem Image");
+  assert.match(html, /id="version"/, "Version in der Leiste");
+});
+
+test("Zeitplan: „Wie war's?“ und Wochenrückblick als eigene Einträge, Uhrzeit änderbar, Jetzt senden ohne Slack → Fehler", async () => {
+  const plan = await (await local("/api/plan")).json();
+  const cook = plan.items.find((i) => i.id === "koch-frage");
+  const digest = plan.items.find((i) => i.id === "wochenrueckblick");
+  assert.equal(cook.kind, "statistik");
+  assert.deepEqual(cook.schedule, [], "in den Tests per KOCH_FRAGE=aus abgeschaltet");
+  assert.equal(cook.source, "KOCH_FRAGE");
+  assert.match(cook.confirm, /heute geplanten Gerichten/);
+  assert.ok(digest);
+  const put = await local("/api/plan/wochenrueckblick", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "slots", slots: ["So 18:45"] }) });
+  assert.equal(put.status, 200);
+  assert.deepEqual((await put.json()).items.find((i) => i.id === "wochenrueckblick").schedule, ["So 18:45"]);
+  const two = await local("/api/plan/koch-frage", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "slots", slots: ["18:00", "20:00"] }) });
+  assert.equal(two.status, 400, "nur eine Uhrzeit");
+  const run = await post("/api/run/wochenrueckblick", {});
+  assert.equal(run.status, 400);
+  assert.match((await run.json()).error, /Slack ist nicht eingerichtet/);
+});
+
+test("Status: alle Dienste mit Zustand, nicht eingerichtete als solche", async () => {
+  const s = await (await local("/api/status?neu")).json();
+  const byKey = Object.fromEntries(s.items.map((x) => [x.key, x]));
+  assert.equal(byKey.tandoor.ok, true, "nachgebautes Tandoor erreichbar");
+  assert.equal(byKey.slack.configured, false);
+  assert.equal(byKey.github.configured, false);
+  assert.equal(s.warn_days, 14);
+  const html = await (await local("/")).text();
+  assert.match(html, /id="tab-status"/);
 });
 
 test("Einstellungen: Geheimnisse ohne WEB_PASSWORT gesperrt, normale Werte speicherbar", async () => {

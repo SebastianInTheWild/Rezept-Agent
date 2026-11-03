@@ -6,6 +6,7 @@
 //   node tandoor.mjs job                  Aktueller Auftrag aus Slack (Link, Foto oder Änderungswunsch)
 //   node tandoor.mjs fetch-url [url]      Link aus dem Auftrag über Tandoors Import auslesen
 //   node tandoor.mjs fetch-video [url]    Reel/Short aus dem Auftrag: Beschreibung, Text aus dem Video (Gemini), Standbilder
+//   node tandoor.mjs fetch-media          Sprachnachrichten/Video-Dateien aus dem Auftrag: was gesagt (und gezeigt) wird, Standbilder
 //   node tandoor.mjs search "<name>"      Rezepte mit ähnlichem Namen (Doppelte erkennen)
 //   node tandoor.mjs recipe <id>          Ein Rezept im einfachen Format
 //   node tandoor.mjs pending [--count]    Rezepte, die geprüft werden sollen (Qualitäts-Agent)
@@ -18,7 +19,7 @@
 import "./lib/umgebung.mjs"; // Einstellungen aus der Weboberfläche (auch beim Aufruf von Hand)
 import { existsSync, writeFileSync } from "node:fs";
 import { getRecipe, simplify } from "./lib/tandoor.mjs";
-import { context, pending, search, fetchUrl, fetchVideo, propose, stats, statsMessage, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";
+import { context, pending, search, fetchUrl, fetchVideo, fetchMedia, propose, stats, statsMessage, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./lib/rezepte.mjs";
 import { post, slackReady } from "./lib/slack.mjs";
 import { planContext, proposePlan, PLAN_FILE } from "./lib/wochenplan.mjs";
 
@@ -52,6 +53,9 @@ try {
       break;
     case "fetch-video":
       out(await fetchVideo(args[0]));
+      break;
+    case "fetch-media":
+      out(await fetchMedia());
       break;
     case "search":
       out(await search(args.join(" ")));
@@ -107,7 +111,7 @@ try {
       break;
     }
     default:
-      console.error("Befehle: context | job | plan-context | plan-propose | fetch-url [url] | fetch-video [url] | search <name> | recipe <id> | pending [--count] | propose | stats [--text] [--post] | reply <text>");
+      console.error("Befehle: context | job | plan-context | plan-propose | fetch-url [url] | fetch-video [url] | fetch-media | search <name> | recipe <id> | pending [--count] | propose | stats [--text] [--post] | reply <text>");
       process.exitCode = 2;
   }
 } catch (e) {

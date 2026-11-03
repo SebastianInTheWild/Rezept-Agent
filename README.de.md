@@ -6,11 +6,14 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 
 | Agent / Dienst | Zeit | Was er macht |
 |---|---|---|
-| `rezepte` | über Slack | Legt aus Links (auch HelloFresh), Instagram-Reels, YouTube-Shorts, Fotos und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
+| `rezepte` | über Slack | Legt aus Links (auch HelloFresh), Instagram-Reels, YouTube-Shorts, Fotos, Sprachnachrichten und eingefügtem Rezepttext im Rezept-Kanal Entwürfe in Tandoor an und überarbeitet sie auf Wunsch. Startet die Slack-Brücke, nicht der Zeitplan. |
 | `rezept-qualitaet` | 12:00 | Prüft Rezepte ohne Status-Schlagwort gegen den Standard (`agents/rezept-standard.md`) und schickt Verbesserungen als Vorschlag in Slack (5 pro Lauf, höchstens 10 offen). |
 | `rezept-statistik` | 19:00 | Schickt täglich die Zahlen (gesamt, geprüft, offen, ohne Bild) in den Slack-Kanal. Kein Agent, das macht die Slack-Brücke. |
 | `wochenplan` | über Slack (optional z. B. So 17:00) | Schlägt einen Essensplan aus euren Rezepten vor; mit einem Klick in Tandoor-Essensplan und Einkaufsliste. |
 | `rezept-sicherung` | 03:30 | Sichert alle Rezepte, gelöschte Rezepte und Bild-Sicherungen in ein privates GitHub-Repo. Kein Agent. |
+| `koch-frage` | 20:30 | „Wie war's?“: fragt in Slack zu den heute geplanten Gerichten nach einer Bewertung (⭐1–5) fürs Tandoor-Kochprotokoll. Kein Agent. |
+| `wochenrueckblick` | So 19:30 | Wochenrückblick in den Slack-Kanal: neue Rezepte, Vorschläge, Gekochtes mit Bewertung, Bestand, Google-Kosten. Kein Agent. |
+| `token-pruefung` | 09:05 | Prüft alle Zugangsdaten und warnt in Slack rechtzeitig vor ablaufenden Tokens (Weboberfläche → Status). Kein Agent. |
 
 Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI; fällt Google oder OpenAI aus, springt Cloudflare ein.
 
@@ -76,6 +79,19 @@ Täglich (Standard 03:30, im Zeitplan änderbar oder **Jetzt sichern**) sichert 
 - **`/wochenplan [Tage] [Wünsche]`** – der Agent `wochenplan` wählt aus euren Rezepten: nur Hauptgerichte, abwechslungsreich (Fleisch/Fisch/vegetarisch, keine Hauptzutat zweimal hintereinander), unter der Woche schnell, saisonal, gut bewertet, nichts kürzlich Gekochtes oder Geplantes. Wünsche haben Vorrang. Mit **🛒 In Essensplan + Einkaufsliste** landet er im Tandoor-Essensplan (Mahlzeit `WOCHENPLAN_MAHLZEIT`, Standard Abendessen; `WOCHENPLAN_PORTIONEN`, Standard 2) und die Zutaten auf der Einkaufsliste. Antwort im Thread tauscht einzelne Gerichte.
 - **Automatisch:** Im Zeitplan beim Agenten „Wochenplan“ z. B. `So 17:00` eintragen – dann kommt jeden Sonntag ein Plan für die nächsten 7 Tage in den Kanal.
 - **`/was-kochen Zucchini, Feta`** – Rezepte, die diese Zutaten enthalten (Tandoor-Lebensmittel), die mit allen zuerst. Ohne Claude.
+- **„Wie war's?“** – Um 20:30 (`koch-frage` im Zeitplan) fragt die Brücke zu jedem Gericht, das heute im Tandoor-Essensplan steht, wie es war: **⭐1–5** oder **Nicht gekocht**. Die Bewertung landet im Kochprotokoll von Tandoor; daraus berechnet Tandoor Bewertung und „zuletzt gekocht“ – genau danach wählt der Wochenplan aus. Gilt auch für Einträge, die ihr direkt in Tandoor geplant habt. Jede Frage kommt nur einmal, ein zweiter Klick trägt nichts doppelt ein.
+- **Wochenrückblick** – sonntags um 19:30 (`wochenrueckblick`): neue Rezepte, übernommene und verworfene Vorschläge, was noch offen ist, was gekocht und wie bewertet wurde (mit dem besten Gericht), der Bestand und die geschätzten Google-Kosten der Woche. In der Weboberfläche auch mit **Jetzt senden**.
+
+### Doppelte Rezepte und Sprachnachrichten
+
+- **Doppelte:** Hat ein neues Rezept (fast) denselben Namen wie ein vorhandenes – gleich ohne Satzzeichen und Zusätze in Klammern, oder der eine Name steckt ganz im anderen („Lasagne“ / „Lasagne Bolognese“) –, zeigt der Vorschlag „🔁 Gibt es vielleicht schon“ mit Link. Der Knopf **🔁 Als Verbesserung für „…“** macht daraus einen Verbesserungsvorschlag für das vorhandene Rezept: Übernehmen ersetzt dann dessen Inhalt (die alte Fassung und das alte Bild werden gesichert), statt ein zweites Rezept anzulegen.
+- **Sprachnachricht:** Einfach in den Rezept-Kanal sprechen (Slack-Audioclip) oder eine Video-Datei schicken. Gemini (`GEMINI_API_KEY`) hört bzw. sieht sich die Aufnahme an und schreibt Zutaten, Mengen und Schritte heraus, unklare Stellen extra; der Agent macht daraus den Entwurf (fehlende Mengen geschätzt und in den Änderungen genannt). Bei Videos gibt es Standbilder wie bei Reels.
+
+### Status und ablaufende Tokens
+
+Die Weboberfläche hat den Reiter **Status**: Für Tandoor, Slack, Claude, Google Gemini, die GitHub-Sicherung, Cloudflare und OpenAI steht dort, ob die Verbindung klappt, die Zugangsdaten gelten und wann der Token abläuft – mit Hinweis, wo man ihn erneuert und einträgt. Ablaufdaten kommen, wo es geht, vom Dienst selbst: GitHub (Fine-grained Token), Cloudflare und Tandoor. Slack-Bot-Tokens und Google-Schlüssel laufen nicht ab. Beim Claude-Token aus `claude setup-token` verrät das niemand: Die Oberfläche nimmt 365 Tage ab dem ersten Einsatz an (`CLAUDE_TOKEN_GUELTIG_TAGE`) – genauer wird es, wenn du das Datum unter Einstellungen → Claude als `CLAUDE_TOKEN_ABLAUF` einträgst. Wie lange der Token wirklich gilt, legt Anthropic fest; deshalb ist die Annahme einstellbar.
+
+**Rechtzeitige Meldung:** Jeden Morgen um 09:05 (`token-pruefung`) prüft die Brücke alles und schreibt in den Kanal, wenn ein Token in höchstens 14 Tagen abläuft (`TOKEN_WARNUNG_TAGE`), noch einmal 3 Tage vorher und am Ablauftag – und einmal, wenn Zugangsdaten nicht (mehr) funktionieren. Ein neuer Token setzt die Warnungen zurück. Gespeichert wird nur ein Fingerabdruck des Tokens, nie der Token selbst (`daten/token-status.json`).
 
 ### Nährwerte
 
@@ -123,7 +139,9 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/pruefen-re
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
 
-**Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version (Commit) und ob es ein Update war („von … auf …“). Abschalten mit `NEUSTART_MELDUNG=aus` oder in der Weboberfläche unter Einstellungen → Slack.
+**Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version und ob es ein Update war („von … auf …“). Abschalten mit `NEUSTART_MELDUNG=aus` oder in der Weboberfläche unter Einstellungen → Slack.
+
+**Version:** Jedes Image trägt eine Version aus dem Zeitpunkt des Commits auf main, z. B. `2026-11-03 10-11` (deutsche Zeit). Jeder gemergte Pull Request, der das Programm ändert, ergibt so automatisch eine neue Version; der wöchentliche Neubau mit frischem Claude Code behält sie. Die Version steht oben rechts in der Weboberfläche (Klick führt zum Commit), in der Neustart-Meldung, unter `/hilfe` und beim Start im Container-Log. Jede Version gibt es auch als Image-Tag, z. B. `ghcr.io/sebastianinthewild/rezept-agent:2026-11-03_10-11` – zum gezielten Zurückgehen `IMAGE_TAG` darauf setzen. Lokal gebaut heißt sie `dev`. Im [CHANGELOG](CHANGELOG.md) steht jede Änderung unter ihrer Version mit Pull Request und Image-Tag; nach jedem Merge trägt GitHub Actions die neue Version dort selbst ein.
 
 ## Rezepte von HelloFresh
 

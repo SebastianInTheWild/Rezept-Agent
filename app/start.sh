@@ -8,6 +8,7 @@ if ! command -v claude >/dev/null 2>&1 || [ "${CLAUDE_UPDATE:-0}" = "1" ]; then
   echo "Claude Code wird installiert …"
   npm install -g @anthropic-ai/claude-code --no-fund --no-audit
 fi
+echo "Rezept-Agent Version ${APP_RELEASE:-dev} (${APP_VERSION:-dev})"
 echo "Claude Code $(claude --version 2>/dev/null || echo '?')"
 # Startzeit des Containers: läuft bei jedem Containerstart (auch nach Neustart), nicht bei einem Neustart nur der Slack-Brücke.
 # Die Brücke meldet daran einmal pro Containerstart in Slack, dass der Agent wieder läuft.
