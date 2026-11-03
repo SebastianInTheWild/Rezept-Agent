@@ -65,6 +65,7 @@ test("/rezept sucht mit Status", async () => {
 test("/hilfe listet alle Befehle", async () => {
   const r = await command("/hilfe");
   for (const c of ["/statistik", "/offen", "/rezept", "/ohne-bild", "/bild-neu", "/bild-alle", "/pruefen", "/pruefen-rezept", "/pro-tag", "/wochenplan", "/was-kochen", "/hilfe"]) assert.ok(r.includes(c), c);
+  assert.match(r, /_Version dev_/);
 });
 
 test("/was-kochen findet Rezepte über Tandoor-Lebensmittel", async () => {

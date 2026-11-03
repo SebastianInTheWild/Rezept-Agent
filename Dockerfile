@@ -20,10 +20,13 @@ ENV AGENTS_DIR=/agents \
 
 WORKDIR /app
 LABEL org.opencontainers.image.source="https://github.com/SebastianInTheWild/Rezept-Agent"
-# Version für die Neustart-Meldung in Slack (setzt GitHub Actions; lokal gebaut: „dev“)
+# Version (Zeitpunkt des Commits, „2026-11-03 10-11“), Commit und Bauzeit – für Weboberfläche, Slack und Log
+# (setzt GitHub Actions; lokal gebaut: „dev“)
 ARG APP_VERSION=dev
+ARG APP_RELEASE=""
 ARG APP_BUILD=""
 ENV APP_VERSION=$APP_VERSION \
+    APP_RELEASE="${APP_RELEASE}" \
     APP_BUILD=$APP_BUILD
 COPY app/ /app/
 COPY agents/ /agents/

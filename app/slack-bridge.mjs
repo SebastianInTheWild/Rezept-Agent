@@ -14,6 +14,7 @@ import { slack, socket, post, update, react, unreact, download, linksIn, plain, 
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice, cleanWish } from "./lib/bild.mjs";
 import { usageMessage } from "./lib/google-nutzung.mjs";
+import { release, versionText, commitUrl } from "./lib/version.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { planByThread, openPlans, resendPlan, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
 import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, addSingle, openProposalFor, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
@@ -417,7 +418,7 @@ const COMMANDS = () => [
   ["/google", "", L("Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten und Rest-Guthaben", "Google usage this month: pictures, videos, estimated cost and remaining credit")],
   ["/hilfe", "", L("Diese Übersicht", "This overview")],
 ];
-const helpText = () => [`*${L("Rezept-Helfer", "Recipe helper")}* – ${HELP()}`, "", ...COMMANDS().map(([c, a, d]) => `• \`${cmd(c)}${a ? " " + a : ""}\` – ${d}`)].join("\n");
+const helpText = () => [`*${L("Rezept-Helfer", "Recipe helper")}* – ${HELP()}`, "", ...COMMANDS().map(([c, a, d]) => `• \`${cmd(c)}${a ? " " + a : ""}\` – ${d}`), "", `_${L("Version", "Version")} ${versionText()}_`].join("\n");
 
 // Das Free-Kontingent beginnt um 00:00 UTC neu – hier in Ortszeit
 const resetTime = () => {
@@ -676,16 +677,20 @@ async function announceStart() {
   const started = existsSync(START_FILE) ? readFileSync(START_FILE, "utf8").trim() : "";
   if (!started || (existsSync(ANNOUNCED_FILE) && readFileSync(ANNOUNCED_FILE, "utf8").trim() === started)) return;
   writeFileSync(ANNOUNCED_FILE, started);
+  // Gemerkt wird der Commit (eindeutig) und die Version (2026-11-03 10-11) für die Anzeige
   const version = (process.env.APP_VERSION || "dev").trim();
   const short = version.slice(0, 7);
-  const before = existsSync(VERSION_FILE) ? JSON.parse(readFileSync(VERSION_FILE, "utf8")).version : null;
-  writeFileSync(VERSION_FILE, JSON.stringify({ version, at: new Date().toISOString() }));
-  const commit = (v) => (/^[0-9a-f]{7,40}$/.test(v) ? link(`https://github.com/SebastianInTheWild/Rezept-Agent/commit/${v}`, v.slice(0, 7)) : v.slice(0, 7));
+  const prev = existsSync(VERSION_FILE) ? JSON.parse(readFileSync(VERSION_FILE, "utf8")) : null;
+  const before = prev?.version || null;
+  writeFileSync(VERSION_FILE, JSON.stringify({ version, release: release(), at: new Date().toISOString() }));
+  const commitLink = (v) => (/^[0-9a-f]{7,40}$/.test(v) ? link(commitUrl(v), v.slice(0, 7)) : v.slice(0, 7));
+  // „*2026-11-03 10-11* (4ecc18d)“ – ältere Images ohne Version zeigen nur den Commit
+  const named = (rel, v) => (rel && rel !== "dev" ? `*${rel}* (${commitLink(v)})` : commitLink(v));
   const built = process.env.APP_BUILD ? new Date(process.env.APP_BUILD).toLocaleString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
   const kind =
     before && before !== version
-      ? L(`⬆️ *Update* von ${commit(before)} auf ${commit(version)}`, `⬆️ *Update* from ${commit(before)} to ${commit(version)}`)
-      : L(`🔄 Neustart · Version ${commit(version)}`, `🔄 Restart · version ${commit(version)}`);
+      ? L(`⬆️ *Update* von ${named(prev.release, before)} auf ${named(release(), version)}`, `⬆️ *Update* from ${named(prev.release, before)} to ${named(release(), version)}`)
+      : L(`🔄 Neustart · Version ${named(release(), version)}`, `🔄 Restart · version ${named(release(), version)}`);
   const text = [L("✅ *Rezept-Helfer läuft wieder*", "✅ *Recipe helper is running again*"), kind, built ? L(`Image vom ${built}`, `image built ${built}`) : ""].filter(Boolean).join(" · ");
   await post(CHANNEL(), text).then(() => log(`Neustart gemeldet (${short}${before && before !== version ? `, vorher ${before.slice(0, 7)}` : ""})`), (e) => log(`Neustart-Meldung fehlgeschlagen: ${e.message}`));
 }

@@ -125,7 +125,9 @@ Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-i
 
 With `/new-image` and `/all-images` the old picture is backed up to `daten/rezepte/sicherungen` first (180 days). If it can't be backed up, the recipe stays unchanged. Both use Google only, without Cloudflare as fallback, and don't count against `BILD_PRO_TAG`.
 
-**Restart message:** after every container start (update, restart from the web UI, server reboot, crash) the agent posts to the recipe channel that it is running again – with the version (commit) and whether it was an update ("from … to …"). Turn it off with `NEUSTART_MELDUNG=aus` or in the web UI under Settings → Slack.
+**Restart message:** after every container start (update, restart from the web UI, server reboot, crash) the agent posts to the recipe channel that it is running again – with the version and whether it was an update ("from … to …"). Turn it off with `NEUSTART_MELDUNG=aus` or in the web UI under Settings → Slack.
+
+**Version:** every image carries a version made from the time of the commit on main, e.g. `2026-11-03 10-11` (German time). Every merged pull request that changes the program automatically gets a new version; the weekly rebuild with a fresh Claude Code keeps it. The version is shown at the top right of the web UI (click to see the commit), in the restart message, under `/help` and in the container log at start. Every version is also an image tag, e.g. `ghcr.io/sebastianinthewild/rezept-agent:2026-11-03_10-11` – set `IMAGE_TAG` to it to go back to a specific version. Built locally it is called `dev`.
 
 ## Recipes from HelloFresh
 

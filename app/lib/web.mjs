@@ -6,6 +6,7 @@
 // Seite „Einstellungen“: Umgebungsvariablen setzen (lib/umgebung.mjs); Geheimnisse nur mit WEB_PASSWORT, gelten nach „Neu starten“.
 // Autor: SebastianInTheWild · MIT-Lizenz
 
+import { versionText, commitUrl } from "./version.mjs";
 import { createServer } from "node:http";
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -199,7 +200,7 @@ function overview() {
     running: backupRunning(),
     last: bakLast ? { at: bakLast.at, result: bakLast.result, by: "", note: bakLast.note || (bakLast.files ? L(`${bakLast.files} Dateien`, `${bakLast.files} files`) : L("keine Änderungen", "no changes")) } : null,
   });
-  return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", lang: lang(), items };
+  return { file: SCHEDULE_FILE, tz: process.env.TZ || "UTC", lang: lang(), version: versionText(), commit_url: commitUrl(), items };
 }
 
 // ---------- HTTP ----------

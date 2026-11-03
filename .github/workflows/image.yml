@@ -1,5 +1,5 @@
 # Baut das Container-Image (Programm, Agenten, Claude Code) und legt es in der GitHub Container Registry ab:
-#   ghcr.io/sebastianinthewild/rezept-agent:latest  (+ :sha-<commit>)
+#   ghcr.io/sebastianinthewild/rezept-agent:latest  (+ :<Version>, z. B. :2026-11-03_10-11, und :sha-<commit>)
 # Bei jedem Push auf main, der app/, agents/, Dockerfile oder das Slack-Manifest ändert, jeden Montag neu
 # (frische Basis und aktuelles Claude Code) und von Hand unter Actions → „Image bauen“ → Run workflow.
 # Optional: Secret PORTAINER_WEBHOOK (Webhook-URL des Stacks in Portainer) – dann wird der Stack danach sofort neu geladen.
@@ -35,16 +35,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Version = Zeitpunkt des Commits auf main in deutscher Zeit („2026-11-03 10-11“) – jeder gemergte Pull Request
+      # ergibt eine neue Version, der wöchentliche Neubau desselben Stands behält sie. Als Tag ohne Leerzeichen: 2026-11-03_10-11
+      - id: zeit
+        run: |
+          echo "jetzt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$(TZ=Europe/Berlin git log -1 --format=%cd --date=format-local:'%Y-%m-%d %H-%M')" >> "$GITHUB_OUTPUT"
+          echo "tag=$(TZ=Europe/Berlin git log -1 --format=%cd --date=format-local:'%Y-%m-%d_%H-%M')" >> "$GITHUB_OUTPUT"
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
+            type=raw,value=${{ steps.zeit.outputs.tag }}
             type=sha,format=short
-
-      - id: zeit
-        run: echo "jetzt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          labels: |
+            org.opencontainers.image.version=${{ steps.zeit.outputs.version }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -57,6 +65,7 @@ jobs:
           # der Cache für apt/yt-dlp/Claude Code bleibt also erhalten)
           build-args: |
             APP_VERSION=${{ github.sha }}
+            APP_RELEASE=${{ steps.zeit.outputs.version }}
             APP_BUILD=${{ steps.zeit.outputs.jetzt }}
           # Montags ohne Cache bauen, damit Basis-Image und Claude Code wirklich neu sind
           no-cache: ${{ github.event_name == 'schedule' }}

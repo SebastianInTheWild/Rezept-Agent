@@ -29,6 +29,9 @@
   .nav .wrap { height: 44px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; letter-spacing: -0.12px; }
   .nav strong { font-weight: 600; font-size: 14px; }
   .nav span { color: var(--body-muted); }
+  .navinfo { display: flex; gap: var(--lg); align-items: center; }
+  .ver { color: var(--body-muted); text-decoration: none; white-space: nowrap; }
+  .ver[href]:hover { color: var(--canvas); }
 
   header.hero { padding: var(--xxxl) 0 var(--xl); }
   h1 { font-size: 40px; line-height: 1.1; font-weight: 700; letter-spacing: -0.28px; margin: 0 0 var(--sm); }
@@ -112,11 +115,11 @@
   .shot .acts .danger { color: var(--danger); }
   .files { display: flex; flex-wrap: wrap; gap: var(--xs) var(--md); font-size: 13px; }
   .files a { color: var(--primary); text-decoration: none; }
-  @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } }
+  @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } #clock { display: none; } }
 </style>
 </head>
 <body>
-<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#sicherungen" id="tab-bak">Sicherungen</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span id="clock"></span></div></nav>
+<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#sicherungen" id="tab-bak">Sicherungen</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span class="navinfo"><a id="version" class="ver" target="_blank" rel="noopener"></a><span id="clock"></span></span></div></nav>
 <main class="wrap" id="view-plan">
   <header class="hero">
     <h1 id="plan-title">Zeitplan</h1>
@@ -163,7 +166,7 @@ const EN = {
   "Nächster Lauf:": "Next run:", "Jetzt sichern": "Back up now", "Die Sicherung läuft nur noch von Hand (Jetzt sichern).": "The backup only runs by hand now (Back up now).", "Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.": "Back up all recipes to GitHub now? The first time takes a few minutes.", "GitHub-Sicherung läuft …": "GitHub backup running …", "Claude-Limit – nächster Versuch:": "Claude limit – next try:", "Seit:": "Since:", "Zuletzt:": "Last:", "Letzte Prüfung:": "Last check:",
   "Startet über Slack (Links und Fotos im Rezept-Kanal) – braucht keinen Zeitplan.": "Starts via Slack (links and photos in the recipe channel) – needs no schedule.",
   "Ändern": "Edit", "Jetzt senden": "Send now", "Läuft …": "Running …", "Startet gleich …": "Starting soon …", "Jetzt starten": "Start now",
-  "Keine Agenten gefunden.": "No agents found.", "Datei: {file} · Zeitzone: {tz}": "File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
+  "Keine Agenten gefunden.": "No agents found.", "Version {v} · Datei: {file} · Zeitzone: {tz}": "Version {v} · File: {file} · Time zone: {tz}", "Laden fehlgeschlagen: {msg}": "Loading failed: {msg}",
   "aus der Weboberfläche": "from this page", "aus Portainer/.env": "from Portainer/.env", "nicht gesetzt": "not set",
   "Gespeichert – gilt nach dem Neustart": "Saved – applies after the restart",
   "\n\nAchtung: {names} läuft gerade und wird abgebrochen.": "\n\nCaution: {names} is running and will be stopped.",
@@ -455,7 +458,13 @@ function card(item) {
 function render() {
   const list = document.getElementById("list");
   list.replaceChildren(...(data?.items?.length ? data.items.map(card) : [el("div", "empty", t("Keine Agenten gefunden."))]));
-  if (data) document.getElementById("foot").textContent = t("Datei: {file} · Zeitzone: {tz}", { file: data.file, tz: data.tz });
+  if (data) document.getElementById("foot").textContent = t("Version {v} · Datei: {file} · Zeitzone: {tz}", { v: data.version || "dev", file: data.file, tz: data.tz });
+  if (data) {
+    const v = document.getElementById("version");
+    v.textContent = `${t("Version")} ${data.version || "dev"}`;
+    if (data.commit_url) v.href = data.commit_url;
+    else v.removeAttribute("href");
+  }
 }
 
 async function load() {

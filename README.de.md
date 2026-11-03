@@ -123,7 +123,9 @@ Slash-Befehle in Slack (Antwort nur für dich sichtbar; `/pruefen`, `/pruefen-re
 
 Bei `/bild-neu` und `/bild-alle` wird das alte Bild vorher in `daten/rezepte/sicherungen` gesichert (180 Tage). Lässt es sich nicht sichern, bleibt das Rezept unverändert. Beide nutzen nur Google, ohne Cloudflare als Ersatz, und zählen nicht gegen `BILD_PRO_TAG`.
 
-**Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version (Commit) und ob es ein Update war („von … auf …“). Abschalten mit `NEUSTART_MELDUNG=aus` oder in der Weboberfläche unter Einstellungen → Slack.
+**Meldung nach Neustart:** Nach jedem Start des Containers (Update, Neustart aus der Weboberfläche, Server-Neustart, Absturz) schreibt der Agent in den Rezept-Kanal, dass er wieder läuft – mit Version und ob es ein Update war („von … auf …“). Abschalten mit `NEUSTART_MELDUNG=aus` oder in der Weboberfläche unter Einstellungen → Slack.
+
+**Version:** Jedes Image trägt eine Version aus dem Zeitpunkt des Commits auf main, z. B. `2026-11-03 10-11` (deutsche Zeit). Jeder gemergte Pull Request, der das Programm ändert, ergibt so automatisch eine neue Version; der wöchentliche Neubau mit frischem Claude Code behält sie. Die Version steht oben rechts in der Weboberfläche (Klick führt zum Commit), in der Neustart-Meldung, unter `/hilfe` und beim Start im Container-Log. Jede Version gibt es auch als Image-Tag, z. B. `ghcr.io/sebastianinthewild/rezept-agent:2026-11-03_10-11` – zum gezielten Zurückgehen `IMAGE_TAG` darauf setzen. Lokal gebaut heißt sie `dev`.
 
 ## Rezepte von HelloFresh
 

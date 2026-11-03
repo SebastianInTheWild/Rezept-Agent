@@ -37,6 +37,8 @@ test("Seite und Zeitplan", async () => {
   const plan = await (await local("/api/plan")).json();
   assert.ok(plan.items.some((i) => i.id === "rezept-qualitaet"));
   assert.ok(plan.items.some((i) => i.id === "rezept-statistik"));
+  assert.equal(plan.version, "dev", "ohne Version aus dem Image");
+  assert.match(html, /id="version"/, "Version in der Leiste");
 });
 
 test("Einstellungen: Geheimnisse ohne WEB_PASSWORT gesperrt, normale Werte speicherbar", async () => {
