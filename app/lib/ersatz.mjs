@@ -1,16 +1,20 @@
-// Ersatz-KI: Scheitert Claude am Nutzungslimit, übernimmt Google Gemini die Rezept-Arbeit – ohne Werkzeuge, in einer Anfrage.
-// Gemini bekommt dieselben Anweisungen wie der Agent (prompt.md) und alle Daten, die der Agent sonst selbst holen würde
-// (Auftrag, Standard, Einheiten, Link-/Video-Auslese, Fotos, Rezepte). Das Ergebnis läuft durch dieselbe Prüfung (propose);
-// bei Fehlern darf Gemini bis zu zweimal korrigieren. Jeder Vorschlag sagt in „changes“, dass er von Gemini kommt.
-//   ERSATZ_KI         leer = an, wenn GEMINI_API_KEY gesetzt ist; aus = nie (dann wie bisher alle 30 Minuten erneut versuchen)
-//   ERSATZ_KI_MODELL  leer = gemini-flash-latest
-// Abgedeckt: Agent „rezepte“ (Import aus Link, HelloFresh, Reel/Short, Foto, Text; Änderungswünsche im Thread) und
-// „rezept-qualitaet“ (Verbesserungsvorschläge). Der Wochenplan wartet weiter auf Claude.
+// Google Gemini als KI-Anbieter für die Rezept-Agenten – statt Claude oder als Ersatz, wenn Claude am Nutzungslimit scheitert.
+// Gemini arbeitet ohne Werkzeuge in einer Anfrage: Es bekommt dieselben Anweisungen wie der Agent (prompt.md) und alle Daten,
+// die der Agent sonst selbst holen würde (Auftrag, Standard, Einheiten, Link-/Video-Auslese, Fotos, Rezepte, Wochenplan-Daten).
+// Das Ergebnis läuft durch dieselbe Prüfung (propose bzw. plan-propose); bei Fehlern darf Gemini bis zu zweimal korrigieren.
+// Jeder Vorschlag sagt, dass er von Gemini kommt.
+//   KI_ANBIETER          Reihenfolge, z. B. „claude,google“ (Standard: Claude, beim Claude-Limit Gemini), „google,claude“
+//                        (Gemini zuerst, bei Fehlern Claude), „google“ oder „claude“ (nur dieser). Gemini braucht GEMINI_API_KEY.
+//   GEMINI_TEXT_MODELL   leer = gemini-flash-latest
+// Abgedeckt (agent.json → "fallback"): „rezepte“ (Import aus Link, HelloFresh, Reel/Short, Foto, Text; Änderungswünsche),
+// „qualitaet“ (Verbesserungsvorschläge), „wochenplan“ (Plan und Änderungswünsche).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { getRecipe, simplify } from "./tandoor.mjs";
 import { context, pending, search, fetchUrl, fetchVideo, propose, loadJob, saveJob, loadStore, DRAFT_FILE, CHANNEL } from "./rezepte.mjs";
+import { planContext, proposePlan, PLAN_FILE } from "./wochenplan.mjs";
 import { isVideoUrl } from "./video.mjs";
 import { imageType } from "./bild.mjs";
 import { record, usageOf } from "./google-nutzung.mjs";
@@ -18,10 +22,20 @@ import { post, slackReady } from "./slack.mjs";
 import { L } from "./i18n.mjs";
 
 const GEMINI = "https://generativelanguage.googleapis.com";
-export const fallbackModel = () => (process.env.ERSATZ_KI_MODELL || "").trim() || "gemini-flash-latest";
-export const fallbackOn = () => Boolean(process.env.GEMINI_API_KEY) && !/^(aus|nein|off|0)$/i.test((process.env.ERSATZ_KI || "").trim());
-/** Welche Agenten Gemini vertreten kann (agent.json → "fallback") */
-export const FALLBACKS = ["rezepte", "qualitaet"];
+export const fallbackModel = () => (process.env.GEMINI_TEXT_MODELL || "").trim() || "gemini-flash-latest";
+export const PROVIDERS = ["claude", "google"];
+/**
+ * Reihenfolge der KI-Anbieter für Agenten mit „fallback“ (KI_ANBIETER). Ohne Angabe Claude, danach Gemini (nur am Limit).
+ * Gemini fällt weg, wenn kein GEMINI_API_KEY eingetragen ist; bleibt nichts übrig, Claude.
+ */
+export function providerOrder() {
+  const wanted = (process.env.KI_ANBIETER || "")
+    .toLowerCase()
+    .split(/[\s,;>]+/)
+    .filter((p) => PROVIDERS.includes(p));
+  const list = [...new Set(wanted.length ? wanted : ["claude", "google"])].filter((p) => p !== "google" || Boolean(process.env.GEMINI_API_KEY));
+  return list.length ? list : ["claude"];
+}
 const MAX_FIXES = 2;
 const MAX_IMAGES = 6;
 
@@ -59,16 +73,19 @@ const imagePart = (file) => {
 
 const FRAME = `
 ## So arbeitest du jetzt (statt mit Werkzeugen)
-Claude ist gerade nicht verfügbar, du vertrittst den Agenten. Du hast **keine Werkzeuge**: Alle Schritte mit \`node tandoor.mjs …\`, Read und Edit sind schon erledigt – ihre Ergebnisse stehen unten unter „DATEN“, Fotos und Standbilder hängen an (in der Reihenfolge der Liste \`attached_images\`).
+Du vertrittst den Agenten. Du hast **keine Werkzeuge**: Alle Schritte mit \`node tandoor.mjs …\`, Read und Edit sind schon erledigt – ihre Ergebnisse stehen unten unter „DATEN“, Fotos und Standbilder hängen an (in der Reihenfolge der Liste \`attached_images\`).
 Antworte ausschließlich mit **einem JSON-Objekt**, ohne Text drumherum:
-- \`{"action": "propose", "draft": { … }}\` – \`draft\` ist genau der Inhalt, den der Agent in entwurf.json schreiben würde (Format oben).
-- \`{"action": "reply", "text": "…"}\` – nur wenn es kein Rezept gibt (wie \`node tandoor.mjs reply\`).
+- \`{"action": "propose", "draft": { … }}\` – \`draft\` ist genau der Inhalt, den der Agent in seine Datei (entwurf.json bzw. wochenplan.json) schreiben würde (Format oben).
+- \`{"action": "reply", "text": "…"}\` – nur wenn es nichts vorzuschlagen gibt (wie \`node tandoor.mjs reply\`).
 Bei mehreren Rezepten (Qualitätsprüfung) bekommst du sie einzeln, je eine Anfrage.`;
 
 const instructions = (agent) => `${agent.promptText.replaceAll("{{DATA}}", "<daten>")}\n${FRAME}`;
 
-/** Eine Anfrage an Gemini, Ergebnis durch propose; bei Prüffehlern bis zu MAX_FIXES Korrekturen. */
-async function draftAndPropose(agent, data, images, extraChange, log) {
+/**
+ * Eine Anfrage an Gemini; den Entwurf schreibt write(d) in die Datei des Agenten, check() prüft und schlägt vor
+ * (propose/proposePlan → { ok, errors }). Bei Prüffehlern bis zu MAX_FIXES Korrekturen.
+ */
+async function askAndCheck(agent, data, images, { write, check, log }) {
   const parts = [{ text: instructions(agent) }, { text: `DATEN:\n${JSON.stringify(data, null, 1)}` }, ...images.map((f) => imagePart(f)).filter(Boolean)];
   const contents = [{ role: "user", parts }];
   for (let round = 0; round <= MAX_FIXES; round++) {
@@ -81,28 +98,41 @@ async function draftAndPropose(agent, data, images, extraChange, log) {
       continue;
     }
     if (answer.action === "reply") return { reply: String(answer.text || "").slice(0, 2000) };
-    const d = answer.draft || answer;
+    const d = answer.draft || answer.plan || answer;
     if (!d || typeof d !== "object") return { error: "Antwort ohne Entwurf" };
-    if (Array.isArray(d.changes)) d.changes.push(extraChange);
-    else d.changes = [extraChange];
-    writeFileSync(DRAFT_FILE(), JSON.stringify(d, null, 1));
-    const r = await propose();
-    if (r.ok) return { proposal: r.proposal, name: d.name };
+    write(structuredClone(d));
+    const r = await check();
+    if (r.ok) return { ok: true, result: r, draft: d };
     log(`Gemini-Entwurf abgelehnt (${round + 1}/${MAX_FIXES + 1}): ${r.errors.join("; ").slice(0, 300)}`);
-    d.changes = d.changes.filter((c) => c !== extraChange);
-    contents.push({ role: "model", parts: [{ text: JSON.stringify(answer) }] }, { role: "user", parts: [{ text: `propose meldet ok: false mit diesen Fehlern – korrigiere den Entwurf und antworte wieder nur mit dem JSON-Objekt:\n${r.errors.join("\n")}` }] });
+    contents.push({ role: "model", parts: [{ text: JSON.stringify(answer) }] }, { role: "user", parts: [{ text: `Die Prüfung meldet ok: false mit diesen Fehlern – korrigiere und antworte wieder nur mit dem JSON-Objekt:\n${r.errors.join("\n")}` }] });
   }
   return { error: L("Gemini hat keinen gültigen Entwurf geliefert", "Gemini did not deliver a valid draft") };
 }
 
-const note = () => L(`Erstellt mit Google Gemini (${fallbackModel()}), weil das Claude-Limit erreicht war – bitte genauer ansehen`, `Created with Google Gemini (${fallbackModel()}) because the Claude limit was reached – please check carefully`);
+// Hinweis im Vorschlag: woher er kommt (und warum, wenn Gemini nur eingesprungen ist)
+const note = (reason) =>
+  reason === "limit"
+    ? L(`Erstellt mit Google Gemini (${fallbackModel()}), weil das Claude-Limit erreicht war – bitte genauer ansehen`, `Created with Google Gemini (${fallbackModel()}) because the Claude limit was reached – please check carefully`)
+    : L(`Erstellt mit Google Gemini (${fallbackModel()})`, `Created with Google Gemini (${fallbackModel()})`);
+
+// Entwurf mit Hinweis in „changes“ in entwurf.json schreiben
+const writeDraft = (reason) => (d) => {
+  d.changes = [...(Array.isArray(d.changes) ? d.changes : []), note(reason)];
+  mkdirSync(dirname(DRAFT_FILE()), { recursive: true });
+  writeFileSync(DRAFT_FILE(), JSON.stringify(d, null, 1));
+};
+
+async function replyInThread(job, text) {
+  if (slackReady()) await post(job.channel || CHANNEL(), text, undefined, job.thread_ts || job.ts);
+  saveJob({ ...loadJob(), replied: true });
+}
 
 // ---------- Agent „rezepte“: Auftrag aus Slack ----------
 
-async function importJob(agent, log) {
+async function importJob(agent, log, reason) {
   const job = loadJob();
   if (!job) return { ok: false, note: "kein Auftrag" };
-  if (job.result || job.replied) return { ok: true, note: L("Claude war vor dem Limit schon fertig", "Claude had already finished before the limit") };
+  if (job.result || job.replied) return { ok: true, note: L("Auftrag war schon erledigt", "Job was already done") };
   if (!existsSync(DRAFT_FILE())) writeFileSync(DRAFT_FILE(), "{}");
   const data = { job, context: await context() };
   const images = [...(job.images || [])];
@@ -116,7 +146,7 @@ async function importJob(agent, log) {
     data.sources = [];
     for (const url of job.urls || []) {
       if (isVideoUrl(url)) {
-        log(`Gemini-Ersatz: Video ${url} auswerten`);
+        log(`Gemini: Video ${url} auswerten`);
         const v = await fetchVideo(url).catch((e) => ({ ok: false, msg: e.message }));
         data.sources.push({ url, type: "video", ...v });
         const frames = v.frames || [];
@@ -133,22 +163,21 @@ async function importJob(agent, log) {
   }
   const shown = images.filter((f) => existsSync(f)).slice(0, MAX_IMAGES);
   data.attached_images = shown;
-  const r = await draftAndPropose(agent, data, shown, note(), log);
+  const r = await askAndCheck(agent, data, shown, { write: writeDraft(reason), check: propose, log });
   if (r.reply) {
-    if (slackReady()) await post(job.channel || CHANNEL(), r.reply, undefined, job.thread_ts || job.ts);
-    saveJob({ ...loadJob(), replied: true });
-    return { ok: true, note: L("Gemini: kein Rezept gefunden (Antwort im Thread)", "Gemini: no recipe found (reply in thread)") };
+    await replyInThread(job, r.reply);
+    return { ok: true, note: L("Gemini: nichts angelegt (Antwort im Thread)", "Gemini: nothing created (reply in thread)") };
   }
   if (r.error) return { ok: false, note: r.error };
   // Doppelte erkennen wie der Agent mit „search“ – als Hinweis im Log (der Vorschlag steht schon)
-  const dup = (await search(r.name).catch(() => [])).filter((x) => x.name.toLowerCase() === r.name.toLowerCase());
-  if (dup.length) log(`Gemini-Ersatz: „${r.name}“ gibt es schon (#${dup.map((x) => x.id).join(", #")})`);
-  return { ok: true, note: L(`Gemini-Ersatz: Vorschlag „${r.name}“`, `Gemini fallback: proposal “${r.name}”`) };
+  const dup = (await search(r.draft.name).catch(() => [])).filter((x) => x.name.toLowerCase() === String(r.draft.name).toLowerCase());
+  if (dup.length) log(`Gemini: „${r.draft.name}“ gibt es schon (#${dup.map((x) => x.id).join(", #")})`);
+  return { ok: true, note: L(`Gemini: Vorschlag „${r.draft.name}“`, `Gemini: proposal “${r.draft.name}”`) };
 }
 
 // ---------- Agent „rezept-qualitaet“: Verbesserungsvorschläge ----------
 
-async function qualityRun(agent, log) {
+async function qualityRun(agent, log, reason) {
   const p = await pending();
   if (!p.batch.length) return { ok: true, note: "nichts zu tun" };
   const ctx = await context();
@@ -158,22 +187,48 @@ async function qualityRun(agent, log) {
   for (const item of p.batch) {
     const recipe = simplify(await getRecipe(item.id));
     try {
-      const r = await draftAndPropose(agent, { context: ctx, recipes: [recipe], hint: `Prüfe dieses eine Rezept; original_id = ${recipe.id}.` }, [], note(), log);
-      if (r.proposal) done.push(recipe.name);
+      const r = await askAndCheck(agent, { context: ctx, recipes: [recipe], hint: `Prüfe dieses eine Rezept; original_id = ${recipe.id}.` }, [], { write: writeDraft(reason), check: propose, log });
+      if (r.ok) done.push(recipe.name);
       else failed.push(`${recipe.name}: ${r.error || r.reply || "?"}`);
     } catch (e) {
       failed.push(`${recipe.name}: ${e.message}`);
       if (/quota|429|API key/i.test(e.message)) break; // Google selbst am Limit – nicht weiter versuchen
     }
   }
-  if (failed.length) log(`Gemini-Ersatz: nicht geklappt – ${failed.join(" · ").slice(0, 500)}`);
-  return { ok: done.length > 0, note: L(`Gemini-Ersatz: ${done.length} von ${p.batch.length} geprüft`, `Gemini fallback: ${done.length} of ${p.batch.length} checked`), count: done.length };
+  if (failed.length) log(`Gemini: nicht geklappt – ${failed.join(" · ").slice(0, 500)}`);
+  return { ok: done.length > 0, note: L(`Gemini: ${done.length} von ${p.batch.length} geprüft`, `Gemini: ${done.length} of ${p.batch.length} checked`), count: done.length };
 }
 
-/** Agent vertreten. agent = loadAgent(id) mit agent.fallback ("rezepte" | "qualitaet"). */
-export async function runFallback(agent, { log = console.log } = {}) {
-  if (!fallbackOn()) return { ok: false, note: "Ersatz-KI aus" };
-  if (agent.fallback === "rezepte") return importJob(agent, log);
-  if (agent.fallback === "qualitaet") return qualityRun(agent, log);
-  return { ok: false, note: `kein Ersatz für ${agent.fallback}` };
+// ---------- Agent „wochenplan“ ----------
+
+async function planRun(agent, log, reason) {
+  const job = loadJob();
+  if (job?.result || job?.replied) return { ok: true, note: L("Auftrag war schon erledigt", "Job was already done") };
+  const data = await planContext();
+  const write = (d) => {
+    const by = note(reason);
+    d.summary = [String(d.summary || "").trim(), `(${by})`].filter(Boolean).join(" ");
+    mkdirSync(dirname(PLAN_FILE()), { recursive: true });
+    writeFileSync(PLAN_FILE(), JSON.stringify(d, null, 1));
+  };
+  const r = await askAndCheck(agent, data, [], { write, check: proposePlan, log });
+  if (r.reply) {
+    if (job) await replyInThread(job, r.reply);
+    else if (slackReady() && CHANNEL()) await post(CHANNEL(), r.reply);
+    return { ok: true, note: L("Gemini: kein Plan (Antwort im Thread)", "Gemini: no plan (reply in thread)") };
+  }
+  if (r.error) return { ok: false, note: r.error };
+  return { ok: true, note: L(`Gemini: Wochenplan mit ${r.result.days.length} Tagen`, `Gemini: meal plan with ${r.result.days.length} days`) };
+}
+
+/**
+ * Agent mit Gemini ausführen. agent = loadAgent(id) mit agent.fallback ("rezepte" | "qualitaet" | "wochenplan");
+ * reason = "limit" (Claude am Limit) oder "primary" (Gemini ist als Anbieter eingestellt).
+ */
+export async function runFallback(agent, { log = console.log, reason = "limit" } = {}) {
+  if (!process.env.GEMINI_API_KEY) return { ok: false, note: "GEMINI_API_KEY fehlt" };
+  if (agent.fallback === "rezepte") return importJob(agent, log, reason);
+  if (agent.fallback === "qualitaet") return qualityRun(agent, log, reason);
+  if (agent.fallback === "wochenplan") return planRun(agent, log, reason);
+  return { ok: false, note: `kein Gemini-Weg für ${agent.fallback}` };
 }

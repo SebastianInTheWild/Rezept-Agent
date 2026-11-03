@@ -85,7 +85,16 @@ Neue Rezepte und Verbesserungsvorschläge bekommen **Nährwerte pro Portion** (K
 
 Läuft ein Agent ins Claude-Nutzungslimit („You've hit your limit“), startet er alle 30 Minuten neu (`CLAUDE_WIEDERHOLEN_MIN`), bis es wieder geht – höchstens 24 Stunden lang. Im Kanal kommt dazu eine Meldung, nach dem Nachholen ein „✅ hat geklappt“. Aufträge aus Slack (Link, Foto, Wochenplan) holt die Brücke genauso nach und schreibt die Uhrzeit in den Thread. Die Weboberfläche zeigt den nächsten Versuch.
 
-**Google Gemini als Ersatz:** Ist ein Google-API-Schlüssel eingetragen, muss beim Claude-Limit niemand warten. Rezept-Import (Link, HelloFresh, Reel/Short, Foto, Text), Änderungswünsche im Thread und die Qualitätsprüfung laufen sofort mit Gemini weiter (`ERSATZ_KI_MODELL`, Standard `gemini-flash-latest`). Gemini bekommt dieselben Anweisungen wie der Agent (`prompt.md`) und alle Daten, die der Agent sonst selbst holen würde, und der Entwurf läuft durch dieselbe Prüfung (bei Fehlern bis zu zwei Korrekturen). Jeder solche Vorschlag sagt in den Änderungen „Erstellt mit Google Gemini … – bitte genauer ansehen“; entschieden wird wie immer mit den Knöpfen. Die Kosten zählt `/google` mit. Der Wochenplan wartet weiter auf Claude. Ausschalten: Einstellungen → Claude → `ERSATZ_KI` = `aus`.
+**KI-Anbieter: Claude oder Google Gemini:** Unter Einstellungen → KI-Anbieter legt `KI_ANBIETER` fest, wer Rezepte importiert und prüft und den Wochenplan macht:
+
+| `KI_ANBIETER` | Verhalten |
+| --- | --- |
+| leer bzw. `claude,google` | Claude; am Claude-Limit macht sofort Google Gemini weiter (Standard) |
+| `google,claude` | Gemini zuerst; klappt es nicht, Claude |
+| `claude` | nur Claude; am Limit alle 30 Minuten erneut (wie früher) |
+| `google` | nur Gemini, Claude wird nie gestartet |
+
+Gemini braucht den Google-API-Schlüssel (derselbe wie für die KI-Fotos), Modell `GEMINI_TEXT_MODELL` (Standard `gemini-flash-latest`). Es bekommt dieselben Anweisungen wie der Agent (`prompt.md`) und alle Daten, die der Agent sonst selbst holen würde (Auftrag, Standard, Link- und Video-Auslese, Fotos, Rezepte), und antwortet in einer Anfrage; das Ergebnis läuft durch dieselbe Prüfung (bei Fehlern bis zu zwei Korrekturen). Jeder Vorschlag sagt in den Änderungen „Erstellt mit Google Gemini …“ (am Limit mit „– bitte genauer ansehen“), beim Wochenplan steht es in der Zusammenfassung. Claude arbeitet als Agent in mehreren Schritten und ist bei schwierigen Quellen meist gründlicher; Gemini kostet pro Anfrage (`/google` zählt mit), Claude ist im Abo enthalten. Welche Agenten Gemini übernehmen kann, steht in `agent.json` unter `"fallback"`.
 
 ### Einstellungen in der Weboberfläche
 

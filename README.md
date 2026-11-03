@@ -91,7 +91,16 @@ New recipes and improvement proposals get **nutrition per serving** (calories, p
 
 If an agent hits the Claude usage limit ("You've hit your limit"), it retries every 30 minutes (`CLAUDE_WIEDERHOLEN_MIN`) until it works again – for at most 24 hours. The channel gets a message, and a "✅ worked" once it's caught up. Jobs from Slack (link, photo, meal plan) are retried by the bridge the same way, with the time in the thread. The web UI shows the next try.
 
-**Google Gemini as fallback:** if a Google API key is set, nobody has to wait at the Claude limit. Recipe import (link, HelloFresh, reel/short, photo, text), change requests in the thread and the quality check continue right away with Gemini (`ERSATZ_KI_MODELL`, default `gemini-flash-latest`). Gemini gets the same instructions as the agent (`prompt.md`) and all the data the agent would otherwise fetch itself, and the draft goes through the same checks (up to two corrections on errors). Every such proposal says "Created with Google Gemini … – please check carefully" in its changes; you decide with the buttons as always. `/google` counts the cost. The meal plan still waits for Claude. To turn it off: Settings → Claude → `ERSATZ_KI` = `aus`.
+**AI provider: Claude or Google Gemini:** under Settings → AI provider, `KI_ANBIETER` decides who imports and checks recipes and makes the meal plan:
+
+| `KI_ANBIETER` | Behaviour |
+| --- | --- |
+| empty or `claude,google` | Claude; at the Claude limit Google Gemini continues right away (default) |
+| `google,claude` | Gemini first; if that fails, Claude |
+| `claude` | Claude only; at the limit retry every 30 minutes (as before) |
+| `google` | Gemini only, Claude is never started |
+
+Gemini needs the Google API key (the same as for AI photos), model `GEMINI_TEXT_MODELL` (default `gemini-flash-latest`). It gets the same instructions as the agent (`prompt.md`) and all the data the agent would otherwise fetch itself (job, standard, link and video results, photos, recipes) and answers in one request; the result goes through the same checks (up to two corrections on errors). Every proposal says "Created with Google Gemini …" in its changes (at the limit with "– please check carefully"); for the meal plan it's in the summary. Claude works as an agent in several steps and is usually more thorough with difficult sources; Gemini costs per request (`/google` counts it), Claude is included in the subscription. Which agents Gemini can take over is set in `agent.json` under `"fallback"`.
 
 ### Slack commands
 

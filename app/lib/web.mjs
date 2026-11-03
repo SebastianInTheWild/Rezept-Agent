@@ -154,7 +154,7 @@ function overview() {
       next: nextRunText({ schedule, enabled }),
       running: Boolean(status?.running),
       since: status?.since || null,
-      last: last ? { at: last.at, result: last.result, by: last.by, note: last.note || "" } : null,
+      last: last ? { at: last.at, result: last.result, by: last.by, note: last.note || "", provider: last.provider || "" } : null,
       check: check ? { at: check.at, result: check.result } : null,
       retry: readStatus(id, "retry.json"),
       manual: a.manual !== false,
