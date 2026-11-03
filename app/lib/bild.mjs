@@ -246,6 +246,7 @@ const backupWidth = () => {
   const n = Number((process.env.SICHERUNG_BILD_BREITE || "").trim());
   return Number.isInteger(n) && n >= 320 ? n : 1600;
 };
+let compressWarned = false;
 /** Bild verkleinern (JPEG). Liefert das Original, wenn es ausgeschaltet ist, ffmpeg fehlt oder es nicht mindestens 10 % spart. */
 export async function compressImage(buf) {
   if (!backupCompression() || !buf?.length) return buf;
@@ -259,7 +260,10 @@ export async function compressImage(buf) {
     );
     const small = readFileSync(out);
     return small.length && small.length < buf.length * 0.9 ? small : buf;
-  } catch {
+  } catch (e) {
+    // Einmal pro Prozess melden (z. B. ffmpeg fehlt) – das Original bleibt
+    if (!compressWarned) console.error(`[sicherung] Bild nicht verkleinert, Original bleibt (ffmpeg): ${String(e.message).split("\n")[0].slice(0, 200)}`);
+    compressWarned = true;
     return buf;
   } finally {
     rmSync(dir, { recursive: true, force: true });

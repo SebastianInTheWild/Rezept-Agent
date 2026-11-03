@@ -92,9 +92,14 @@ test("Bilder für Sicherungen verkleinern mit ffmpeg: großes PNG → kleineres 
   }
   const dir = mkdtempSync(join(tmpdir(), "bild-test-"));
   try {
+    // Fotoähnlich (Verläufe mit Rauschen): ein glattes Testmuster ließe sich als PNG besser packen als als JPEG
     const src = join(dir, "gross.png");
-    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc=size=2400x1600", "-frames:v", "1", src]);
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=2400x1600,noise=alls=25:allf=t", "-frames:v", "1", src]);
     const big = readFileSync(src);
+    // Derselbe Aufruf wie in compressImage direkt – damit ein ffmpeg-Fehler hier sichtbar wird statt still das Original zu liefern
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-i", src, "-frames:v", "1", "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", join(dir, "direkt.jpg")]);
+    const direct = readFileSync(join(dir, "direkt.jpg"));
+    assert.ok(direct.length < big.length * 0.9, `JPEG ${direct.length} B soll deutlich kleiner sein als PNG ${big.length} B`);
     const small = await bild.compressImage(big);
     assert.equal(bild.imageType(small).ext, "jpg");
     assert.ok(small.length < big.length * 0.9, `${small.length} < ${big.length}`);
