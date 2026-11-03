@@ -126,6 +126,26 @@ test("Knopf „🎨 Neues Bild“: Rückmeldung am Vorschlag, die übrigen Knöp
   assert.equal(last.blocks.filter((b) => b.block_id === "rzimgstatus").length, 1, "genau eine Statuszeile");
 });
 
+test("Knopf „🎨 Neues Bild“ mit trigger_id: Dialog mit optionalem Wunsch, Absenden erzeugt das Bild", async () => {
+  const buttons = { type: "actions", elements: [{ action_id: "rz_apply" }, { action_id: "rz_draft_image" }] };
+  const views = slack.views.length;
+  socket.send({ type: "interactive", payload: { type: "block_actions", trigger_id: "t1", user: { id: "U2" }, channel: { id: "C1" }, message: { ts: "8.0", text: "Vorschlag", blocks: [{ type: "section" }, buttons] }, actions: [{ action_id: "rz_draft_image", value: "p2" }] } });
+  assert.ok(await until(() => slack.views.length > views), "Dialog geöffnet");
+  const view = slack.views.at(-1).view;
+  assert.equal(view.callback_id, "rz_image_wish");
+  assert.equal(view.blocks[0].optional, true, "Wunsch ist optional");
+  const before = slack.updates.length;
+  socket.send({ type: "interactive", payload: { type: "view_submission", user: { id: "U2" }, view: { callback_id: "rz_image_wish", private_metadata: view.private_metadata, state: { values: { wish: { text: { value: "  mehr Soße  " } } } } } } });
+  // Ohne Bild-Anbieter im Test: Fehlermeldung – entscheidend ist, dass der Vorschlag nach dem Absenden bearbeitet wird
+  assert.ok(await until(() => slack.updates.length >= before + 2), "Status am Vorschlag");
+  assert.ok(slack.updates.at(-1).blocks.some((b) => b.type === "actions"), "Knöpfe bleiben");
+  // Gleicher Schlüssel ein zweites Mal: nichts passiert
+  const after = slack.updates.length;
+  socket.send({ type: "interactive", payload: { type: "view_submission", user: { id: "U2" }, view: { callback_id: "rz_image_wish", private_metadata: view.private_metadata, state: { values: {} } } } });
+  await wait(100);
+  assert.equal(slack.updates.length, after);
+});
+
 test("/offen neu schickt offene Vorschläge und Pläne mit aktuellen Knöpfen neu", async () => {
   const { readFileSync } = await import("node:fs");
   const file = join(data, "rezepte", "vorschlaege.json");

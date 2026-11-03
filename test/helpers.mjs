@@ -161,7 +161,7 @@ export function fakeTandoor(recipes = []) {
 
 /** Nachgebautes Slack: zeichnet Nachrichten und Antworten auf Befehle auf. */
 export function fakeSlack() {
-  const s = { posts: [], updates: [], responses: [], ts: 1 };
+  const s = { posts: [], updates: [], responses: [], views: [], ts: 1 };
   s.handle = async (url, init = {}) => {
     const method = url.split("/").pop();
     if (url.startsWith("https://slack.test/response")) {
@@ -172,6 +172,7 @@ export function fakeSlack() {
     const body = init.body && init.headers?.["Content-Type"]?.includes("json") ? JSON.parse(init.body) : Object.fromEntries(new URLSearchParams(init.body || ""));
     if (method === "chat.postMessage") s.posts.push(body);
     if (method === "chat.update") s.updates.push(body);
+    if (method === "views.open") s.views.push(body);
     if (method === "chat.getPermalink") return json({ ok: true, permalink: "https://slack.test/p" });
     return json({ ok: true, ts: `${s.ts++}.000` });
   };

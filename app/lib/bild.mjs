@@ -168,10 +168,18 @@ const RUN = {
   openai,
 };
 
+/** Änderungswunsch an den Bild-Prompt hängen – er hat Vorrang vor der Stilbeschreibung (bewusst so gewünscht) */
+export const cleanWish = (w) => String(w || "").replace(/\s+/g, " ").trim().slice(0, 300);
+export function withWish(prompt, wish) {
+  const w = cleanWish(wish);
+  return w ? `${prompt}\n\nSpecial request from the cook for this picture (may be written in German). Follow it, even where it differs from the description above: ${w}` : prompt;
+}
+
 // Optionen: only = nur dieser Anbieter, ohne Ersatz (z. B. "google" beim Erneuern); noLimit = BILD_PRO_TAG nicht anwenden
 // (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem);
-// reference = Pfad eines Fotos vom fertigen Gericht (Standbild aus dem Video) – nur Google nutzt es, die anderen nur den Text
-export async function generateImage(d, dir, { only, noLimit = false, reference } = {}) {
+// reference = Pfad eines Fotos vom fertigen Gericht (Standbild aus dem Video) – nur Google nutzt es, die anderen nur den Text;
+// wish = Änderungswunsch aus Slack („🎨 Neues Bild“, /bild-neu Name: Wunsch), z. B. „mehr Soße, von oben“
+export async function generateImage(d, dir, { only, noLimit = false, reference, wish } = {}) {
   const main = only || provider();
   if (!READY[main]?.()) throw new Error(only === "google" ? L("GEMINI_API_KEY fehlt – Google ist nicht eingerichtet", "GEMINI_API_KEY missing – Google is not set up") : `${L("kein Bild-Anbieter eingerichtet", "no image provider set up")} – ${imageSetupHint()}`);
   mkdirSync(dir, { recursive: true });
@@ -180,7 +188,7 @@ export async function generateImage(d, dir, { only, noLimit = false, reference }
   const limit = /^\d+$/.test(raw) ? Number(raw) : Infinity;
   const cnt = countToday(dir);
   if (!noLimit && cnt.n >= limit) throw new Error(L(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`, `Daily limit of ${limit} pictures reached (BILD_PRO_TAG)`));
-  const prompt = imagePrompt(d);
+  const prompt = withWish(imagePrompt(d), wish);
   let ref = null;
   try {
     ref = reference && existsSync(reference) ? readFileSync(reference) : null;

@@ -53,6 +53,15 @@ test("„🎨 Neues Bild“ erzeugt normal, ohne Vorlage", async () => {
   assert.equal(proposal("Reel-Nudeln").generated_info.reference, undefined);
 });
 
+test("„🎨 Neues Bild“ mit Wunsch: Wunsch steht im Prompt und hat Vorrang", async () => {
+  const p = proposal("Reel-Nudeln");
+  await rez.regenerateDraftImage(p.id, { wish: "von oben fotografiert,\n mit   mehr Parmesan" });
+  const text = google.at(-1).contents[0].parts[0].text;
+  assert.match(text, /Follow it, even where it differs from the description above: von oben fotografiert, mit mehr Parmesan$/);
+  await rez.regenerateDraftImage(p.id, { wish: "   " });
+  assert.ok(!/Special request/.test(google.at(-1).contents[0].parts[0].text), "leerer Wunsch = normales Bild");
+});
+
 test("Foto aus Slack (keine Video-Datei) → keine Vorlage, nur Text", async () => {
   writeFileSync(rez.DRAFT_FILE(), JSON.stringify(entwurf("Kochbuch-Nudeln", photo)));
   const r = await rez.propose();
