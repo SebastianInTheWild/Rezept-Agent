@@ -110,3 +110,11 @@ export function usageMessage(now = new Date()) {
 }
 
 export const hasUsage = () => existsSync(FILE());
+
+/** Geschätzte Kosten der Tage from…to (JJJJ-MM-TT, beide einschließlich) – für den Wochenrückblick */
+export function costBetween(from, to) {
+  let sum = 0;
+  for (const m of Object.values(read().months || {})) for (const [d, c] of Object.entries(m.days || {})) if (d >= from && d <= to) sum += Number(c) || 0;
+  return sum;
+}
+export const formatUsd = (n) => usd(n);

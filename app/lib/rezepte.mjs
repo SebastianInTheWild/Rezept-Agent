@@ -9,7 +9,7 @@ import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, r
 import { compressImage, generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { slack, post, update, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
-import { analyzeVideo, isVideoUrl } from "./video.mjs";
+import { analyzeVideo, analyzeMedia, isVideoUrl } from "./video.mjs";
 import { fetchHelloFresh, isHelloFresh } from "./hellofresh.mjs";
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -559,6 +559,18 @@ export async function fetchVideo(url) {
   return r;
 }
 
+// Sprachnachrichten und Video-Dateien aus dem Auftrag (Slack): Gemini schreibt heraus, was gesagt/gezeigt wird.
+// Nur Dateien aus dem Auftrag (job.media), die im Eingang liegen.
+export async function fetchMedia() {
+  const job = loadJob();
+  const inbox = resolve(REZEPTE, "inbox");
+  const files = (job?.media || []).map((f) => resolve(f)).filter((f) => f.startsWith(inbox + sep));
+  if (!files.length) throw new Error(L("Im Auftrag ist keine Sprachnachricht und kein Video", "The job has no voice message or video"));
+  const out = [];
+  for (const f of files) out.push(await analyzeMedia(f, inbox));
+  return { media: out };
+}
+
 // ---------- Prüfen ----------
 
 export function validate(d, ctx) {
@@ -679,6 +691,11 @@ export async function propose() {
     const id = `p${Date.now().toString(36)}`;
     const single = kind === "quality" && singles(store).some((x) => x.id === d.original_id);
     p = store.proposals[id] = { id, kind, draft_id: draft.id, original_id: kind === "quality" ? d.original_id : null, name: d.name.trim(), status: "open", created: new Date().toISOString(), by: job?.user || "agent", ...(single ? { single: true } : {}) };
+    // Gibt es das Rezept schon? Dann im Vorschlag zeigen, mit Knopf „Als Verbesserung für …“
+    if (kind === "import") {
+      const dups = await findDuplicates(d.name, draft.id).catch(() => []);
+      if (dups.length) p.duplicates = dups;
+    }
     // Bild: einheitlicher KI-Stil (BILD_EINHEITLICH, Standard an) – neue Rezepte bekommen immer ein KI-Foto.
     // Verbesserungsvorschläge bringen das Bild ebenfalls auf den Stil: Hat das Original schon ein KI-Bild im aktuellen
     // Stil, wird es übernommen, sonst entsteht ein neues; das alte wird beim Übernehmen gesichert (wie bei /bild-neu).
@@ -775,6 +792,8 @@ export function proposalMessage(p, d, { kind, warnings = [], dif }) {
   if (dif?.lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: cut(`*${L("Zutaten", "Ingredients")}* (${L("Schritte", "steps")} ${dif.steps})\n${dif.lines.slice(0, 25).map(esc).join("\n")}${dif.lines.length > 25 ? `\n… ${L("und", "and")} ${dif.lines.length - 25} ${L("weitere", "more")}` : ""}`) } });
   if (d.nutrition) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `🥗 ${nutritionText(d.nutrition)}` }] });
   if (dif?.removed) warnings = [L(`${dif.removed} Zutat(en) entfernt – bitte prüfen`, `${dif.removed} ingredient(s) removed – please check`), ...warnings];
+  if (kind === "import" && p.duplicates?.length)
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `🔁 *${L("Gibt es vielleicht schon", "Might already exist")}:* ${p.duplicates.map((x) => link(recipeUrl(x.id), x.name)).join(", ")}\n${L("Mit dem Knopf unten wird daraus ein Verbesserungsvorschlag für das vorhandene Rezept (die alte Fassung wird beim Übernehmen gesichert).", "The button below turns this into an improvement for the existing recipe (the old version is backed up when applied).")}` } });
   blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: cut([...warnings.map((w) => `⚠️ ${esc(w)}`), `${draftLink} · ${L("Antworte im Thread, wenn ich etwas ändern soll.", "Reply in the thread if you want me to change something.")}`].join("\n")) }] });
   blocks.push(actions(p));
   return { text: `${{ import: L("Neues Rezept", "New recipe"), quality: L("Vorschlag", "Proposal"), revise: L("Überarbeitet", "Revised") }[kind]}: ${d.name}`, blocks };
@@ -788,8 +807,63 @@ const actions = (p) => ({
     { type: "button", style: "danger", text: { type: "plain_text", text: L("Verwerfen", "Discard") }, action_id: "rz_reject", value: p.id },
     ...(p.kind === "quality" ? [{ type: "button", text: { type: "plain_text", text: L("Nicht bearbeiten", "Leave as is") }, action_id: "rz_skip", value: p.id }] : []),
     { type: "button", text: { type: "plain_text", text: L("🎨 Neues Bild", "🎨 New picture") }, action_id: "rz_draft_image", value: p.id },
+    ...(p.kind === "import" && p.duplicates?.length
+      ? [{ type: "button", text: { type: "plain_text", text: L(`🔁 Als Verbesserung für „${short(p.duplicates[0].name)}“`, `🔁 As improvement of “${short(p.duplicates[0].name)}”`) }, action_id: "rz_merge", value: `${p.id}:${p.duplicates[0].id}` }]
+      : []),
   ],
 });
+const short = (s) => (s.length > 40 ? `${s.slice(0, 39)}…` : s);
+
+// ---------- Doppelte Rezepte ----------
+
+// Vergleichbarer Name: klein, ohne Satzzeichen und Zusätze in Klammern
+const normName = (s) =>
+  String(s)
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+/** Gleich (nach normName) oder der eine Name steckt ganz im anderen („Lasagne“ / „Lasagne Bolognese“), ab 6 Zeichen */
+export function similarName(a, b) {
+  const x = normName(a);
+  const y = normName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [s, l] = x.length < y.length ? [x, y] : [y, x];
+  return s.length >= 6 && ` ${l} `.includes(` ${s} `);
+}
+/** Vorhandene Rezepte mit (fast) gleichem Namen – ohne Entwürfe und ohne den eigenen Entwurf; höchstens 3 */
+export async function findDuplicates(name, ownId) {
+  const hits = await search(name);
+  return hits.filter((r) => r.id !== ownId && !isDraft(r.name) && similarName(r.name, name)).slice(0, 3).map((r) => ({ id: r.id, name: r.name }));
+}
+
+/**
+ * Knopf „🔁 Als Verbesserung für …“: Aus dem Import-Vorschlag wird ein Verbesserungsvorschlag für das vorhandene Rezept.
+ * Übernehmen ersetzt dann dessen Inhalt (alte Fassung und altes Bild werden gesichert), statt ein zweites Rezept anzulegen.
+ * Die Slack-Nachricht (channel/ts) wird mit Vergleich der Zutaten neu gebaut.
+ */
+export async function proposalAsImprovement(id, originalId, { channel, ts } = {}) {
+  const { store, p } = openProposal(id);
+  if (p.kind !== "import") throw new Error(L("Das geht nur bei neuen Rezepten", "This only works for new recipes"));
+  const orig = await getRecipe(Number(originalId)).catch(() => null);
+  if (!orig || isDraft(orig.name)) throw new Error(L("Das vorhandene Rezept gibt es nicht mehr", "The existing recipe no longer exists"));
+  if (Object.values(store.proposals).some((x) => x.status === "open" && x.original_id === orig.id)) throw new Error(L(`Für „${orig.name}“ gibt es schon einen offenen Vorschlag`, `There is already an open proposal for “${orig.name}”`));
+  p.kind = "quality";
+  p.original_id = orig.id;
+  delete p.duplicates;
+  if (p.generated_image) p.replace_image = Boolean(orig.image); // neues KI-Bild ersetzt beim Übernehmen das alte (gesichert)
+  p.changes = [...(p.changes || []), L(`Als Verbesserung für das vorhandene Rezept „${orig.name}“ – Übernehmen ersetzt es, die alte Fassung wird gesichert`, `As an improvement of the existing recipe “${orig.name}” – applying replaces it, the old version is backed up`)];
+  p.updated = new Date().toISOString();
+  const d = simplify(await getRecipe(p.draft_id));
+  d.name = p.name;
+  d.changes = p.changes;
+  const msg = proposalMessage(p, d, { kind: "quality", warnings: p.warnings || [], dif: diff(simplify(orig), d) });
+  const where = { channel: channel || p.slack?.channel, ts: ts || p.slack?.last_ts };
+  if (!DRY && slackReady() && where.channel && where.ts) await update(where.channel, where.ts, msg.text, msg.blocks);
+  saveStore(store);
+  return { ok: true, name: p.name, original: orig.name, url: recipeUrl(orig.id) };
+}
 
 /**
  * „🎨 Neues Bild“ am Vorschlag: KI-Bild für den Entwurf (neu) erzeugen – etwa wenn es beim Anlegen nicht geklappt hat.

@@ -7,6 +7,9 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { versionText, commitUrl } from "./version.mjs";
+import { askCooked, COOK_ID, COOK_DEFAULT } from "./kochen.mjs";
+import { sendDigest, DIGEST_ID, DIGEST_DEFAULT } from "./rueckblick.mjs";
+import { checkAll } from "./status.mjs";
 import { createServer } from "node:http";
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -115,6 +118,37 @@ async function sendStats() {
   }
 }
 
+// Feste Aufgaben der Slack-Brücke mit „Jetzt senden“ (laufen von Hand direkt hier; nach Zeitplan in der Slack-Brücke)
+const TASKS = () => [
+  {
+    id: COOK_ID,
+    env: "KOCH_FRAGE",
+    def: COOK_DEFAULT,
+    name: L("Wie war's?", "How was it?"),
+    description: L("Fragt abends in Slack zu jedem Gericht, das heute im Tandoor-Essensplan steht, wie es war (⭐1–5 oder „Nicht gekocht“). Die Bewertung kommt ins Kochprotokoll in Tandoor – der Wochenplan bevorzugt dann gut bewertete Rezepte. Kein Agent.", "Asks in Slack in the evening how each dish from today's Tandoor meal plan was (⭐1–5 or “Not cooked”). The rating goes into the Tandoor cook log – the meal plan then prefers well-rated recipes. Not an agent."),
+    confirm: L("Jetzt in Slack zu den heute geplanten Gerichten fragen?", "Ask in Slack about today's planned dishes now?"),
+    off: L("Es wird nicht mehr nach dem Kochen gefragt.", "No more questions after cooking."),
+    run: async () => {
+      const n = await askCooked();
+      return n ? L(`Wie war's?: ${n} ${n === 1 ? "Frage" : "Fragen"} in Slack`, `How was it?: ${n} ${n === 1 ? "question" : "questions"} in Slack`) : L("Wie war's?: heute ist nichts (mehr) offen im Essensplan", "How was it?: nothing (left) to ask about in today's meal plan");
+    },
+  },
+  {
+    id: DIGEST_ID,
+    env: "WOCHENRUECKBLICK",
+    def: DIGEST_DEFAULT,
+    name: L("Wochenrückblick", "Weekly review"),
+    description: L("Schickt einmal pro Woche einen Rückblick in den Slack-Kanal: neue Rezepte, entschiedene und offene Vorschläge, was gekocht und wie bewertet wurde, Bestand und Google-Kosten. Kein Agent.", "Posts a weekly review to the Slack channel: new recipes, decided and open proposals, what was cooked and how it was rated, the collection and Google cost. Not an agent."),
+    confirm: L("Wochenrückblick jetzt in den Slack-Kanal schicken?", "Send the weekly review to the Slack channel now?"),
+    off: L("Der Wochenrückblick wird nicht mehr geschickt.", "The weekly review is no longer sent."),
+    run: async () => {
+      await sendDigest();
+      return L("Wochenrückblick: in Slack gesendet", "Weekly review: sent to Slack");
+    },
+  },
+];
+const taskRunning = new Set();
+
 // Von Hand angeforderte Agenten (Knopf „Jetzt starten“, Slack „/pruefen“ per Datei); der Zeitplan startet sie nacheinander
 const queued = [];
 export const takeQueued = () => queued.shift() || agentIds().find(takeStartRequest);
@@ -180,6 +214,26 @@ function overview() {
     manual: true,
     running: statsSending,
   });
+  // Weitere feste Aufgaben der Slack-Brücke („Wie war's?“, Wochenrückblick) – wie die Statistik: eine Uhrzeit, „Jetzt senden“
+  for (const task of TASKS()) {
+    const envRaw = (process.env[task.env] || "").trim();
+    const slots = slotsOf(plan[task.id] ?? (envRaw || task.def));
+    items.push({
+      id: task.id,
+      kind: "statistik",
+      name: task.name,
+      description: task.description,
+      schedule: slots,
+      enabled: slots.length > 0,
+      source: task.id in plan ? "zeitplan.conf" : envRaw ? task.env : "Standard",
+      default: { schedule: [envRaw || task.def], enabled: true },
+      next: nextRunText({ schedule: slots, enabled: slots.length > 0 }),
+      manual: true,
+      running: taskRunning.has(task.id),
+      confirm: task.confirm,
+      off_text: task.off,
+    });
+  }
   // Sonderfall: tägliche GitHub-Sicherung (kein Agent, nur eine Uhrzeit)
   const bakRaw = plan[BACKUP_ID] ?? BACKUP_DEFAULT;
   const bakSlots = slotsOf(bakRaw);
@@ -374,13 +428,15 @@ export function startWeb() {
         return send(res, 200, readFileSync(HTML, "utf8"), "text/html; charset=utf-8");
       }
       if (req.method === "GET" && url.pathname === "/api/plan") return send(res, 200, overview());
+      // Status der Verbindungen und Tokens (?neu = jetzt prüfen statt Zwischenspeicher)
+      if (req.method === "GET" && url.pathname === "/api/status") return send(res, 200, { lang: lang(), version: versionText(), ...(await checkAll({ fresh: url.searchParams.has("neu") })) });
       const m = /^\/api\/plan\/([\w.-]+)$/.exec(url.pathname);
       if (req.method === "PUT" && m) {
         // Schutz gegen Formular-Angriffe von fremden Seiten: nur JSON von dieser Seite
         if (!/^application\/json/.test(req.headers["content-type"] || "")) return send(res, 415, { error: L("JSON erwartet", "JSON expected") });
         const id = m[1];
         // Statistik und GitHub-Sicherung: eine feste Uhrzeit, keine Abstände
-        const isStats = id === STATS_ID || id === BACKUP_ID;
+        const isStats = id === STATS_ID || id === BACKUP_ID || TASKS().some((x) => x.id === id);
         if (!isStats && !agentIds().includes(id)) return send(res, 404, { error: L(`Agent „${id}“ gibt es nicht`, `Agent “${id}” does not exist`) });
         const { mode, slots = [] } = await body(req);
         if (mode === "default") {
@@ -451,6 +507,20 @@ export function startWeb() {
           if (statsSending) return send(res, 409, { error: L("Die Statistik wird gerade gesendet", "The statistics are being sent right now") });
           await sendStats();
           return send(res, 200, overview());
+        }
+        const task = TASKS().find((x) => x.id === id);
+        if (task) {
+          if (taskRunning.has(id)) return send(res, 409, { error: L("Läuft gerade schon", "Already running") });
+          taskRunning.add(id);
+          try {
+            const message = await task.run();
+            console.log(`[web] ${id} von Hand: ${message}`);
+            return send(res, 200, { ...overview(), message });
+          } catch (e) {
+            return send(res, 400, { error: e.message });
+          } finally {
+            taskRunning.delete(id);
+          }
         }
         if (id === BACKUP_ID) {
           if (!backupReady()) return send(res, 400, { error: L("GitHub-Sicherung ist nicht eingerichtet", "GitHub backup is not set up") });

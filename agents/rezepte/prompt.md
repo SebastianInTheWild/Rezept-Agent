@@ -6,7 +6,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 ## Ablauf
 
 1. `node tandoor.mjs job` – der Auftrag:
-   - `kind: "import"`: `urls` (Links) und/oder `images` (Pfade zu Fotos), dazu `text` (was dazu geschrieben wurde). Gibt es weder Links noch Fotos, ist `text` selbst das Rezept (z. B. eine kopierte Bildunterschrift).
+   - `kind: "import"`: `urls` (Links), `images` (Pfade zu Fotos) und/oder `media` (Sprachnachrichten oder Video-Dateien), dazu `text` (was dazu geschrieben wurde). Gibt es weder Links noch Fotos noch Aufnahmen, ist `text` selbst das Rezept (z. B. eine kopierte Bildunterschrift).
    - `kind: "revise"`: `text` ist ein Änderungswunsch zu `current_draft` (dem aktuellen Entwurf). Bei einem Verbesserungsvorschlag steht zusätzlich `original_id` dabei.
 2. `node tandoor.mjs context` – der Standard (`standard`), die Vorlage (`reference`), erlaubte Einheiten (`units`), Schlagwörter (`keywords`) und vorhandene Lebensmittel (`foods`). Lies den Standard genau, er gilt für alles.
 3. Rezept holen:
@@ -27,6 +27,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
      - `frames`: Standbilder (`file`, `second`). Sieh dir die Bilder mit dem Read-Werkzeug an, wenn Mengen oder Schritte unklar sind. **Setz `image_file` immer auf das Standbild, das das fertige Gericht am besten zeigt** – meist `…-fertig.jpg`, sonst das beste andere (kein Text, keine Hände im Vordergrund). Es dient als Vorlage fürs KI-Foto, damit das Gericht so aussieht wie im Video.
      - `links`: Links aus der Beschreibung. Führt einer zum vollständigen Rezept (z. B. Blog des Creators), lies ihn mit `node tandoor.mjs fetch-url <link>` und nimm bevorzugt dieses Rezept; das Video ergänzt dann nur.
      Setz das Rezept aus allem zusammen. Widersprechen sich Beschreibung und Video, gilt was gesagt bzw. eingeblendet wird, und du nennst es in `changes`. `source_url` ist der Video-Link, in `changes` steht z. B. „Aus einem Instagram-Reel von @name“. Gibt es kein Rezept (`ok: false` oder nichts Brauchbares), `reply` mit dem Grund aus `msg` und Schluss.
+   - Sprachnachricht oder Video-Datei (`media`): `node tandoor.mjs fetch-media`. Gemini hat die Aufnahme abgehört bzw. angesehen; du bekommst je Datei `text` (Zutaten, Schritte, möglichst wörtlich, was gesagt wird, unklare Stellen unter `UNKLAR`) und bei Videos `frames` wie bei Video-Links (dann `image_file` auf `…-fertig.jpg`). Fehlende Mengen sinnvoll schätzen und in `changes` nennen, z. B. „Aus einer Sprachnachricht“, „Menge für Mehl geschätzt“. Ist darin kein Rezept (`ok: false` oder nichts Brauchbares), `reply` mit dem Grund und Schluss.
    - Nur Text: Schreib das Rezept aus `text` ab. Steht kein Rezept darin, `reply` mit einer kurzen Erklärung und Schluss.
    - Foto: Lies jedes Bild aus `images` mit dem Read-Werkzeug und schreib das Rezept daraus ab. Unleserliche Stellen sinnvoll ergänzen und in `changes` nennen. Ist auf dem Bild kein Rezept, antworte mit `reply` und hör auf.
    - Änderungswunsch: Nimm `current_draft` und ändere nur, was gewünscht ist (plus offensichtliche Fehler gegen den Standard).

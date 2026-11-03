@@ -115,11 +115,12 @@
   .shot .acts .danger { color: var(--danger); }
   .files { display: flex; flex-wrap: wrap; gap: var(--xs) var(--md); font-size: 13px; }
   .files a { color: var(--primary); text-decoration: none; }
-  @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } #clock { display: none; } }
+  @media (max-width: 640px) { h1 { font-size: 34px; } .head { flex-direction: column; } #clock, .nav .ver { display: none; } .tabs { gap: var(--md); overflow-x: auto; } }
+  #status > .actions { flex-wrap: wrap; }
 </style>
 </head>
 <body>
-<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#sicherungen" id="tab-bak">Sicherungen</a><a href="#einstellungen" id="tab-env">Einstellungen</a></div><span class="navinfo"><a id="version" class="ver" target="_blank" rel="noopener"></a><span id="clock"></span></span></div></nav>
+<nav class="nav"><div class="wrap"><div class="tabs"><a href="#" id="tab-plan">Zeitplan</a><a href="#sicherungen" id="tab-bak">Sicherungen</a><a href="#einstellungen" id="tab-env">Einstellungen</a><a href="#status" id="tab-status">Status</a></div><span class="navinfo"><a id="version" class="ver" target="_blank" rel="noopener"></a><span id="clock"></span></span></div></nav>
 <main class="wrap" id="view-plan">
   <header class="hero">
     <h1 id="plan-title">Zeitplan</h1>
@@ -141,6 +142,13 @@
     <p class="sub" id="env-sub">Zugangsdaten und Optionen. Werte von hier haben Vorrang vor den Umgebungsvariablen aus Portainer und liegen in <code>daten/umgebung.json</code>. Sie gelten nach einem Neustart des Containers.</p>
   </header>
   <div class="list" id="env"><div class="empty">Lade …</div></div>
+</main>
+<main class="wrap" id="view-status" hidden>
+  <header class="hero">
+    <h1 id="status-title">Status</h1>
+    <p class="sub" id="status-sub">Sind Tandoor, Slack, Claude, Google und die GitHub-Sicherung erreichbar, gelten die Zugangsdaten – und wann laufen Tokens ab? Vor dem Ablauf kommt rechtzeitig eine Meldung in Slack.</p>
+  </header>
+  <div class="list" id="status"><div class="empty">Lade …</div></div>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -183,7 +191,11 @@ const EN = {
   "Ohne Passwort – Zugangsdaten änderbar": "No password – credentials can be changed",
   "WEB_ZUGANGSDATEN_OHNE_PASSWORT ist an. Jeder, der diese Seite erreicht, kann Tokens und Schlüssel ändern. Sorg dafür, dass sie nur aus dem Heimnetz erreichbar ist (z. B. Access List im Nginx Proxy Manager).": "WEB_ZUGANGSDATEN_OHNE_PASSWORT is on. Anyone who can reach this page can change tokens and keys. Make sure it is only reachable from your home network (e.g. an access list in Nginx Proxy Manager).",
   "Änderungen speichern": "Save changes", "Nichts geändert": "Nothing changed",
-  "Einstellungen · Agenten": "Settings · Agents", "Zeitplan · Agenten": "Schedule · Agents", "Standard": "default",
+  "Einstellungen · Agenten": "Settings · Agents", "Status · Agenten": "Status · Agents",
+  "Sind Tandoor, Slack, Claude, Google und die GitHub-Sicherung erreichbar, gelten die Zugangsdaten – und wann laufen Tokens ab? Vor dem Ablauf kommt rechtzeitig eine Meldung in Slack.": "Are Tandoor, Slack, Claude, Google and the GitHub backup reachable, are the credentials valid – and when do tokens expire? You get a message in Slack in good time before they do.",
+  "in Ordnung": "OK", "Problem": "problem", "nicht eingerichtet": "not set up", "läuft bald ab": "expires soon", "Läuft ab:": "Expires:", "abgelaufen": "expired",
+  "in {n} Tagen": "in {n} days", "morgen": "tomorrow", "heute": "today", "vor {n} Tagen": "{n} days ago", "Erneuern:": "Renew:", "Eintragen unter:": "Enter under:",
+  "Jetzt prüfen": "Check now", "Wird geprüft …": "Checking …", "Geprüft: {time} · Warnung {n} Tage vor Ablauf": "Checked: {time} · warning {n} days before expiry", "kein Ablaufdatum bekannt": "no expiry date known", "läuft nicht ab": "doesn't expire", "Zeitplan · Agenten": "Schedule · Agents", "Standard": "default",
   "Sicherungen": "Backups", "Sicherungen · Agenten": "Backups · Agents", "Bild nicht abrufbar": "Picture not available", "kein Bild": "no picture",
   "Rezept {id} (gelöscht)": "Recipe {id} (deleted)", "ID {id} · {n} Bild-Sicherung(en)": "ID {id} · {n} picture backup(s)", "{n} Rezept-Sicherung(en)": "{n} recipe backup(s)",
   "aktuell KI-Bild": "currently AI picture", "aktuell": "current", "{size} · bleibt bis {date}": "{size} · kept until {date}",
@@ -211,6 +223,7 @@ function applyLang(lang) {
   document.getElementById("tab-plan").textContent = t("Zeitplan");
   document.getElementById("tab-env").textContent = t("Einstellungen");
   document.getElementById("tab-bak").textContent = t("Sicherungen");
+  document.getElementById("status-sub").textContent = t("Sind Tandoor, Slack, Claude, Google und die GitHub-Sicherung erreichbar, gelten die Zugangsdaten – und wann laufen Tokens ab? Vor dem Ablauf kommt rechtzeitig eine Meldung in Slack.");
   document.getElementById("bak-title").textContent = t("Sicherungen");
   document.getElementById("plan-title").textContent = t("Zeitplan");
   document.getElementById("env-title").textContent = t("Einstellungen");
@@ -287,14 +300,14 @@ async function save(item) {
 }
 async function startNow(item, button) {
   const isStats = item.kind === "statistik";
-  const isBak = item.kind === "sicherung"; if (!confirm(isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : isBak ? t("Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.") : t("{name} jetzt starten?", { name: item.name }))) return;
+  const isBak = item.kind === "sicherung"; if (!confirm(item.confirm ? item.confirm : isStats ? t("Rezept-Statistik jetzt in den Slack-Kanal schicken?") : isBak ? t("Jetzt alle Rezepte nach GitHub sichern? Das erste Mal dauert einige Minuten.") : t("{name} jetzt starten?", { name: item.name }))) return;
   if (isStats && button) { button.disabled = true; button.textContent = t("Wird gesendet …"); }
   try {
     const r = await fetch(`api/run/${encodeURIComponent(item.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     data = j; render();
-    toast(isStats ? t("Rezept-Statistik: in Slack gesendet") : isBak ? t("GitHub-Sicherung läuft …") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
+    toast(j.message ? j.message : isStats ? t("Rezept-Statistik: in Slack gesendet") : isBak ? t("GitHub-Sicherung läuft …") : t("{name}: startet innerhalb von 30 Sekunden", { name: item.name }));
   } catch (err) { toast(err.message, true); render(); }
 }
 // Wie viele Rezepte der Qualitäts-Agent pro Tag prüft
@@ -378,7 +391,7 @@ function editor(item) {
     row.append(n, el("span", null, t("Minuten")));
     box.append(row);
   } else {
-    box.append(el("p", "hint", item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : item.kind === "sicherung" ? t("Die Sicherung läuft nur noch von Hand (Jetzt sichern).") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
+    box.append(el("p", "hint", item.off_text ? item.off_text : item.kind === "statistik" ? t("Die Statistik wird nicht mehr geschickt.") : item.kind === "sicherung" ? t("Die Sicherung läuft nur noch von Hand (Jetzt sichern).") : t("Der Agent läuft nicht mehr nach Zeitplan – nur noch von Hand (Jetzt starten).")));
   }
   if (e.error) box.append(el("p", "err", e.error));
 
@@ -724,13 +737,63 @@ function renderBak() {
   box.replaceChildren(...parts);
 }
 
+// ---------- Status ----------
+let statusBusy = false;
+async function loadStatus(fresh) {
+  if (statusBusy) return;
+  statusBusy = true;
+  const btn = document.querySelector("#status .btn");
+  if (fresh && btn) { btn.disabled = true; btn.textContent = t("Wird geprüft …"); }
+  try {
+    const r = await fetch(`api/status${fresh ? "?neu" : ""}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.statusText);
+    const s = await r.json();
+    applyLang(s.lang);
+    renderStatus(s);
+  } catch (err) { toast(t("Laden fehlgeschlagen: {msg}", { msg: err.message }), true); }
+  finally { statusBusy = false; }
+}
+function untilText(days) {
+  if (days < 0) return t("vor {n} Tagen", { n: -days });
+  if (days === 0) return t("heute");
+  if (days === 1) return t("morgen");
+  return t("in {n} Tagen", { n: days });
+}
+function renderStatus(s) {
+  const box = document.getElementById("status");
+  const head = el("div", "actions");
+  const again = el("button", "btn", t("Jetzt prüfen")); again.type = "button"; again.onclick = () => loadStatus(true);
+  head.append(el("p", "hint", t("Geprüft: {time} · Warnung {n} Tage vor Ablauf", { time: fmt(s.at), n: s.warn_days })), el("span", "spacer"), again);
+  const cards = s.items.map((it) => {
+    const c = el("article", "card");
+    const top = el("div", "head");
+    const left = el("div");
+    left.append(el("h2", "title", it.name), el("p", "desc", it.detail || ""));
+    const expired = typeof it.days_left === "number" && it.days_left < 0;
+    const [text, cls] = !it.configured ? ["nicht eingerichtet", "idle"] : it.ok === false ? ["Problem", "err"] : expired ? ["abgelaufen", "err"] : it.warn ? ["läuft bald ab", "err"] : ["in Ordnung", "ok"];
+    top.append(left, el("span", "badge " + cls, t(text)));
+    c.append(top);
+    if (it.configured) {
+      const meta = el("div", "meta");
+      const add = (label, value) => { const sp = el("span"); sp.append(el("b", null, t(label) + " "), document.createTextNode(value)); meta.append(sp); };
+      if (it.expires) add("Läuft ab:", `${new Date(it.expires).toLocaleDateString(LOCALE(), { day: "2-digit", month: "2-digit", year: "numeric" })} (${untilText(it.days_left)})${it.expires_note ? ` – ${it.expires_note}` : ""}`);
+      else add("Läuft ab:", it.never ? t("läuft nicht ab") : t("kein Ablaufdatum bekannt"));
+      if (it.warn || it.ok === false) { add("Erneuern:", it.renew); add("Eintragen unter:", it.where); }
+      c.append(meta);
+    }
+    return c;
+  });
+  box.replaceChildren(head, ...cards);
+}
+
 function view() {
-  const page = location.hash === "#einstellungen" ? "env" : location.hash === "#sicherungen" ? "bak" : "plan";
-  for (const p of ["plan", "bak", "env"]) {
+  const page = location.hash === "#einstellungen" ? "env" : location.hash === "#sicherungen" ? "bak" : location.hash === "#status" ? "status" : "plan";
+  for (const p of ["plan", "bak", "env", "status"]) {
     document.getElementById(`view-${p}`).hidden = p !== page;
     document.getElementById(`tab-${p}`).setAttribute("aria-current", p === page ? "page" : "false");
   }
-  document.title = { plan: t("Zeitplan · Agenten"), bak: t("Sicherungen · Agenten"), env: t("Einstellungen · Agenten") }[page];
+  document.title = { plan: t("Zeitplan · Agenten"), bak: t("Sicherungen · Agenten"), env: t("Einstellungen · Agenten"), status: t("Status · Agenten") }[page];
+  if (page === "status") loadStatus(false);
   if (page === "env" && !Object.keys(changes).length) loadEnv();
   if (page === "bak") loadBak();
 }

@@ -17,7 +17,11 @@ import { usageMessage } from "./lib/google-nutzung.mjs";
 import { release, versionText, commitUrl } from "./lib/version.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { planByThread, openPlans, resendPlan, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
-import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, addSingle, openProposalFor, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages } from "./lib/rezepte.mjs";
+import { REZEPTE, CHANNEL, proposalByThread, applyProposal, rejectProposal, regenerateDraftImage, resendProposal, loadStore, cleanup, stats, statsMessage, pending, perDay, setPerDay, addToday, addSingle, openProposalFor, openProposals, findRecipes, recipesWithoutImage, postWithoutImage, generateRecipeImage, noImageMessage, allRecipeIds, resolveRecipe, reconcileAiImages, proposalAsImprovement } from "./lib/rezepte.mjs";
+import { answerCook, askCooked, COOK_ID, COOK_DEFAULT } from "./lib/kochen.mjs";
+import { sendDigest, DIGEST_ID, DIGEST_DEFAULT } from "./lib/rueckblick.mjs";
+import { warnTokens, TOKEN_CHECK_ID, TOKEN_CHECK_DEFAULT } from "./lib/status.mjs";
+import { every } from "./lib/aufgaben.mjs";
 
 const AGENT = process.env.REZEPT_AGENT || "rezepte";
 const PLAN_AGENT = process.env.WOCHENPLAN_AGENT || "wochenplan";
@@ -26,8 +30,8 @@ const INBOX = join(REZEPTE, "inbox");
 const log = (m) => console.log(`[${stamp()}] [slack] ${m}`);
 const HELP = () =>
   L(
-    "Schick mir einen Link zu einem Rezept (auch HelloFresh), ein Instagram-Reel oder YouTube-Short, ein Foto (Kochbuchseite, Screenshot, Zettel) oder den Rezepttext selbst. Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.",
-    "Send me a link to a recipe (HelloFresh too), an Instagram reel or YouTube short, a photo (cookbook page, screenshot, note) or the recipe text itself. I'll create a draft in Tandoor, and you decide with the buttons.",
+    "Schick mir einen Link zu einem Rezept (auch HelloFresh), ein Instagram-Reel oder YouTube-Short, ein Foto (Kochbuchseite, Screenshot, Zettel), eine Sprachnachricht oder den Rezepttext selbst. Ich lege daraus einen Entwurf in Tandoor an, und du entscheidest mit den Knöpfen.",
+    "Send me a link to a recipe (HelloFresh too), an Instagram reel or YouTube short, a photo (cookbook page, screenshot, note), a voice message or the recipe text itself. I'll create a draft in Tandoor, and you decide with the buttons.",
   );
 // Reiner Text gilt als Rezept, wenn er lang genug ist (z. B. eine kopierte Bildunterschrift) – kurze Nachrichten bekommen die Hilfe
 const looksLikeRecipe = (t) => t.length >= 80 || t.split("\n").filter((l) => l.trim()).length >= 3;
@@ -71,14 +75,25 @@ async function onEvent(e) {
 
   const urls = linksIn(text);
   const files = (e.files || []).filter((f) => /^image\//.test(f.mimetype || ""));
-  if (!urls.length && !files.length && !looksLikeRecipe(plain(text))) return post(e.channel, HELP(), undefined, e.ts);
+  // Sprachnachrichten (Slack-Audioclips) und Video-Dateien: Gemini schreibt heraus, was gesagt/gezeigt wird
+  const recordings = (e.files || []).filter((f) => /^(audio|video)\//.test(f.mimetype || "") || f.subtype === "slack_audio" || f.subtype === "slack_video");
+  if (!urls.length && !files.length && !recordings.length && !looksLikeRecipe(plain(text))) return post(e.channel, HELP(), undefined, e.ts);
   const images = [];
   for (const [n, f] of files.entries()) {
     const path = join(INBOX, `${e.ts.replace(".", "-")}-${n + 1}.${(f.filetype || "jpg").replace(/[^a-z0-9]/gi, "")}`);
     writeFileSync(path, await download(f.url_private_download || f.url_private));
     images.push(path);
   }
-  enqueue({ kind: "import", urls, images, text: plain(text), channel: e.channel, ts: e.ts, user: e.user });
+  const media = [];
+  for (const [n, f] of recordings.entries()) {
+    // Endung bestimmt den Dateityp für Gemini (m4a, mp4, webm …); Slack nennt Audioclips oft „mp4“/„webm“
+    const ext = (f.filetype || (/^video\//.test(f.mimetype) ? "mp4" : "m4a")).replace(/[^a-z0-9]/gi, "").toLowerCase();
+    const audioExt = /^audio\//.test(f.mimetype || "") && ext === "mp4" ? "m4a" : ext;
+    const path = join(INBOX, `${e.ts.replace(".", "-")}-a${n + 1}.${audioExt}`);
+    writeFileSync(path, await download(f.url_private_download || f.url_private));
+    media.push(path);
+  }
+  enqueue({ kind: "import", urls, images, ...(media.length ? { media } : {}), text: plain(text), channel: e.channel, ts: e.ts, user: e.user });
 }
 
 function enqueue(job) {
@@ -145,6 +160,34 @@ async function onPlanAction(payload, a, user) {
     log(`${a.action_id} ${a.value} von ${user}`);
   } catch (e) {
     await status(`⚠️ ${esc(e.message)}`, loadStore().plans?.[a.value]?.status === "open");
+    log(`Fehler bei ${a.action_id} ${a.value}: ${e.message}`);
+  }
+}
+
+// Knopf „🔁 Als Verbesserung für …“ an einem neuen Rezept, das es schon gibt: wird zum Verbesserungsvorschlag
+async function onMerge(payload, value, user) {
+  const [id, original] = String(value).split(":");
+  const { ts, text, blocks = [] } = payload.message;
+  const channel = payload.channel.id;
+  try {
+    const r = await proposalAsImprovement(id, Number(original), { channel, ts });
+    log(`rz_merge ${id} → #${original} (${r.original}) von ${user}`);
+  } catch (e) {
+    await update(channel, ts, text, [...blocks, { type: "context", elements: [{ type: "mrkdwn", text: `⚠️ ${esc(e.message)}` }] }]).catch(() => {});
+    log(`Fehler bei rz_merge ${value}: ${e.message}`);
+  }
+}
+
+// Knöpfe „Wie war's?“ nach dem Kochen: Bewertung ins Tandoor-Kochprotokoll (lib/kochen.mjs)
+async function onCook(payload, a, user) {
+  const channel = payload.channel.id;
+  const { ts } = payload.message;
+  try {
+    const m = await answerCook(a.value, a.action_id === "rz_cook_no" ? null : Number(a.action_id.slice("rz_cook_".length)), user);
+    await update(channel, ts, m.text, m.blocks);
+    log(`${a.action_id} ${a.value} von ${user}`);
+  } catch (e) {
+    await update(channel, ts, payload.message.text, [...(payload.message.blocks || []), { type: "context", elements: [{ type: "mrkdwn", text: `⚠️ ${esc(e.message)}` }] }]).catch(() => {});
     log(`Fehler bei ${a.action_id} ${a.value}: ${e.message}`);
   }
 }
@@ -235,6 +278,8 @@ async function onAction(payload) {
   if (a.action_id.startsWith("rz_all_")) return onAllAction(payload, a, user);
   if (a.action_id.startsWith("rz_plan_")) return onPlanAction(payload, a, user);
   if (a.action_id === "rz_draft_image") return askWish(payload, "draft", a.value, user);
+  if (a.action_id === "rz_merge") return onMerge(payload, a.value, user);
+  if (a.action_id.startsWith("rz_cook_")) return onCook(payload, a, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus(L("⏳ Einen Moment …", "⏳ One moment …"), false));
@@ -761,3 +806,19 @@ async function dailyStats() {
 }
 dailyStats();
 setInterval(dailyStats, 60_000);
+
+// Weitere feste Aufgaben (Uhrzeit in zeitplan.conf, „aus“ schaltet ab):
+// „Wie war's?“ zu den heute geplanten Gerichten, Wochenrückblick, tägliche Prüfung der Tokens
+every(COOK_ID, COOK_DEFAULT, async () => {
+  const n = await askCooked();
+  if (n) log(`Wie war's? – ${n} ${n === 1 ? "Frage" : "Fragen"} gestellt`);
+}, log);
+every(DIGEST_ID, DIGEST_DEFAULT, async () => {
+  if (!CHANNEL()) return;
+  const w = await sendDigest();
+  log(`Wochenrückblick gesendet (${w.added.length} neu, ${w.cooked.length} bewertet)`);
+}, log);
+every(TOKEN_CHECK_ID, TOKEN_CHECK_DEFAULT, async () => {
+  const sent = await warnTokens(CHANNEL());
+  if (sent.length) log(`Token-Prüfung: ${sent.length} ${sent.length === 1 ? "Warnung" : "Warnungen"} gesendet`);
+}, log);

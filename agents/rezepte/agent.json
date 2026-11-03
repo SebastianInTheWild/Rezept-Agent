@@ -15,6 +15,7 @@
     "Bash(node tandoor.mjs fetch-url:*)",
     "Bash(node tandoor.mjs fetch-video)",
     "Bash(node tandoor.mjs fetch-video:*)",
+    "Bash(node tandoor.mjs fetch-media)",
     "Bash(node tandoor.mjs search:*)",
     "Bash(node tandoor.mjs recipe:*)",
     "Bash(node tandoor.mjs propose)",
