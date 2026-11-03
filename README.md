@@ -91,6 +91,8 @@ New recipes and improvement proposals get **nutrition per serving** (calories, p
 
 If an agent hits the Claude usage limit ("You've hit your limit"), it retries every 30 minutes (`CLAUDE_WIEDERHOLEN_MIN`) until it works again – for at most 24 hours. The channel gets a message, and a "✅ worked" once it's caught up. Jobs from Slack (link, photo, meal plan) are retried by the bridge the same way, with the time in the thread. The web UI shows the next try.
 
+**Google Gemini as fallback:** if a Google API key is set, nobody has to wait at the Claude limit. Recipe import (link, HelloFresh, reel/short, photo, text), change requests in the thread and the quality check continue right away with Gemini (`ERSATZ_KI_MODELL`, default `gemini-flash-latest`). Gemini gets the same instructions as the agent (`prompt.md`) and all the data the agent would otherwise fetch itself, and the draft goes through the same checks (up to two corrections on errors). Every such proposal says "Created with Google Gemini … – please check carefully" in its changes; you decide with the buttons as always. `/google` counts the cost. The meal plan still waits for Claude. To turn it off: Settings → Claude → `ERSATZ_KI` = `aus`.
+
 ### Slack commands
 
 Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-image`, `/all-images` and `/per-day <number>` only work in the recipe channel. German names in brackets.

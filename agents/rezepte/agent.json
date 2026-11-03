@@ -7,6 +7,7 @@
   "enabled": true,
   "manual": false,
   "schedule": [],
+  "fallback": "rezepte",
   "allowedTools": [
     "Bash(node tandoor.mjs job)",
     "Bash(node tandoor.mjs context)",

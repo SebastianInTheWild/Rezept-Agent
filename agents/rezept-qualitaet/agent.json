@@ -9,6 +9,7 @@
     "10:00"
   ],
   "precheck": "node tandoor.mjs pending --count",
+  "fallback": "qualitaet",
   "allowedTools": [
     "Bash(node tandoor.mjs pending)",
     "Bash(node tandoor.mjs context)",

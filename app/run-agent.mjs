@@ -85,7 +85,7 @@ export async function runAgent(id, { quiet = false, by = "direkt" } = {}) {
     throw e;
   } finally {
     rmSync(statusFile(id, "status.json"), { force: true });
-    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000), ...(r?.limit ? { limit: true } : {}) };
+    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000), ...(r?.limit ? { limit: true } : {}), ...(r?.fallback ? { fallback: true } : {}) };
     // Am Claude-Limit gescheitert: später erneut (Läufe aus Slack wiederholt die Slack-Brücke selbst, mit ihrem Auftrag)
     if (r?.limit && by !== "slack") entry.retry = scheduleRetry(id, by)?.next || null;
     else if (r && r.result !== "fehler") clearRetry(id);
@@ -158,6 +158,16 @@ async function run(id, quiet, by) {
   });
   log(`Claude beendet (Code ${code})`);
   const limit = code !== 0 && isLimitError(tail);
+  // Claude-Limit: Google Gemini vertritt den Agenten (agent.json „fallback“, Einstellung ERSATZ_KI) – sonst später erneut mit Claude
+  if (limit && agent.fallback) {
+    const { fallbackOn, fallbackModel, runFallback } = await import("./lib/ersatz.mjs");
+    if (fallbackOn()) {
+      log(`Claude-Limit erreicht – Google Gemini (${fallbackModel()}) springt ein`);
+      const f = await runFallback(agent, { log }).catch((e) => ({ ok: false, note: e.message }));
+      log(`Ersatz: ${f.note}`);
+      if (f.ok) return { code: 0, limit: false, result: "ok", note: f.note, fallback: true };
+    }
+  }
   if (code !== 0) {
     const name = L(agent.name || id, agent.name_en || agent.name || id);
     const msg = limit
