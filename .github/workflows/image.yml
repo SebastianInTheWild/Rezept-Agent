@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # Changelog: Version nach dem Bau eintragen
   packages: write
 
 concurrency:
@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # ganze Historie: Version aus dem letzten Programm-Commit, Changelog zurückschreiben
 
       - uses: docker/setup-buildx-action@v3
 
@@ -35,13 +37,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Version = Zeitpunkt des Commits auf main in deutscher Zeit („2026-11-03 10-11“) – jeder gemergte Pull Request
-      # ergibt eine neue Version, der wöchentliche Neubau desselben Stands behält sie. Als Tag ohne Leerzeichen: 2026-11-03_10-11
+      # Version = Zeitpunkt des letzten Commits auf main, der das Programm ändert (dieselben Pfade wie oben unter „paths“),
+      # in deutscher Zeit („2026-11-03 10-11“) – jeder gemergte Pull Request ergibt eine neue Version; der wöchentliche
+      # Neubau und der Changelog-Commit danach ändern sie nicht. Als Tag ohne Leerzeichen: 2026-11-03_10-11
       - id: zeit
         run: |
+          code=(-- app agents Dockerfile slack-app-manifest.yml .github/workflows/image.yml)
           echo "jetzt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          echo "version=$(TZ=Europe/Berlin git log -1 --format=%cd --date=format-local:'%Y-%m-%d %H-%M')" >> "$GITHUB_OUTPUT"
-          echo "tag=$(TZ=Europe/Berlin git log -1 --format=%cd --date=format-local:'%Y-%m-%d_%H-%M')" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git log -1 --first-parent --format=%H "${code[@]}")" >> "$GITHUB_OUTPUT"
+          echo "version=$(TZ=Europe/Berlin git log -1 --first-parent --format=%cd --date=format-local:'%Y-%m-%d %H-%M' "${code[@]}")" >> "$GITHUB_OUTPUT"
+          echo "tag=$(TZ=Europe/Berlin git log -1 --first-parent --format=%cd --date=format-local:'%Y-%m-%d_%H-%M' "${code[@]}")" >> "$GITHUB_OUTPUT"
+          # PR-Nummer aus „Merge pull request #17 …“ bzw. bei Squash-Merge „Titel (#17)“
+          echo "pr=$(git log -1 --first-parent --format=%s "${code[@]}" | sed -n -e 's/^Merge pull request #\([0-9]*\).*/\1/p' -e 's/.*(#\([0-9]*\))$/\1/p' | head -1)" >> "$GITHUB_OUTPUT"
 
       - id: meta
         uses: docker/metadata-action@v5
@@ -64,7 +71,7 @@ jobs:
           # Version und Bauzeit für die Neustart-Meldung in Slack (stehen im Dockerfile hinter den großen Schichten,
           # der Cache für apt/yt-dlp/Claude Code bleibt also erhalten)
           build-args: |
-            APP_VERSION=${{ github.sha }}
+            APP_VERSION=${{ steps.zeit.outputs.commit }}
             APP_RELEASE=${{ steps.zeit.outputs.version }}
             APP_BUILD=${{ steps.zeit.outputs.jetzt }}
           # Montags ohne Cache bauen, damit Basis-Image und Claude Code wirklich neu sind
@@ -77,3 +84,23 @@ jobs:
           PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK }}
         if: env.PORTAINER_WEBHOOK != ''
         run: curl -fsS -X POST "$PORTAINER_WEBHOOK"
+
+      # CHANGELOG: „Unveröffentlicht“ wird zur gebauten Version (mit PR und Image-Tag) und zurück nach main geschrieben.
+      # Nur nach einem Push (Merge), nicht beim wöchentlichen Neubau. Ist main geschützt, schlägt nur dieser Schritt fehl.
+      - name: Changelog – Version eintragen
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.zeit.outputs.version }}
+          TAG: ${{ steps.zeit.outputs.tag }}
+          PR: ${{ steps.zeit.outputs.pr }}
+        run: |
+          git fetch -q origin main
+          git checkout -q -B main origin/main
+          node .github/changelog-version.mjs CHANGELOG.md "$VERSION" "$TAG" "$PR"
+          if ! git diff --quiet CHANGELOG.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -q -m "CHANGELOG: Version $VERSION (Image-Tag $TAG)" CHANGELOG.md
+            git push -q origin main
+          fi
