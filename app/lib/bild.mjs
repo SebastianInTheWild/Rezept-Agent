@@ -8,8 +8,10 @@
 // Verbrauchte Neuronen: Cloudflare-GraphQL (Token braucht zusätzlich „Account Analytics: Read“), Kontingent CF_NEURONEN_PRO_TAG (Standard 10.000).
 // Autor: SebastianInTheWild · MIT-Lizenz
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { L, locale } from "./i18n.mjs";
@@ -168,10 +170,18 @@ const RUN = {
   openai,
 };
 
+/** Änderungswunsch an den Bild-Prompt hängen – er hat Vorrang vor der Stilbeschreibung (bewusst so gewünscht) */
+export const cleanWish = (w) => String(w || "").replace(/\s+/g, " ").trim().slice(0, 300);
+export function withWish(prompt, wish) {
+  const w = cleanWish(wish);
+  return w ? `${prompt}\n\nSpecial request from the cook for this picture (may be written in German). Follow it, even where it differs from the description above: ${w}` : prompt;
+}
+
 // Optionen: only = nur dieser Anbieter, ohne Ersatz (z. B. "google" beim Erneuern); noLimit = BILD_PRO_TAG nicht anwenden
 // (nur für ausdrücklich bestätigte Aufträge wie /bild-alle und /bild-neu – gezählt wird trotzdem);
-// reference = Pfad eines Fotos vom fertigen Gericht (Standbild aus dem Video) – nur Google nutzt es, die anderen nur den Text
-export async function generateImage(d, dir, { only, noLimit = false, reference } = {}) {
+// reference = Pfad eines Fotos vom fertigen Gericht (Standbild aus dem Video) – nur Google nutzt es, die anderen nur den Text;
+// wish = Änderungswunsch aus Slack („🎨 Neues Bild“, /bild-neu Name: Wunsch), z. B. „mehr Soße, von oben“
+export async function generateImage(d, dir, { only, noLimit = false, reference, wish } = {}) {
   const main = only || provider();
   if (!READY[main]?.()) throw new Error(only === "google" ? L("GEMINI_API_KEY fehlt – Google ist nicht eingerichtet", "GEMINI_API_KEY missing – Google is not set up") : `${L("kein Bild-Anbieter eingerichtet", "no image provider set up")} – ${imageSetupHint()}`);
   mkdirSync(dir, { recursive: true });
@@ -180,7 +190,7 @@ export async function generateImage(d, dir, { only, noLimit = false, reference }
   const limit = /^\d+$/.test(raw) ? Number(raw) : Infinity;
   const cnt = countToday(dir);
   if (!noLimit && cnt.n >= limit) throw new Error(L(`Tageslimit von ${limit} Bildern erreicht (BILD_PRO_TAG)`, `Daily limit of ${limit} pictures reached (BILD_PRO_TAG)`));
-  const prompt = imagePrompt(d);
+  const prompt = withWish(imagePrompt(d), wish);
   let ref = null;
   try {
     ref = reference && existsSync(reference) ? readFileSync(reference) : null;
@@ -227,3 +237,35 @@ export async function lastImageNote() {
 // Bildformat an den ersten Bytes erkennen (FLUX liefert je nach Modell JPEG oder PNG)
 export const imageType = (buf) =>
   buf[0] === 0x89 && buf[1] === 0x50 ? { mime: "image/png", ext: "png" } : buf[0] === 0x52 && buf[8] === 0x57 ? { mime: "image/webp", ext: "webp" } : { mime: "image/jpeg", ext: "jpg" };
+
+// ---------- Bilder für Sicherungen verkleinern ----------
+// SICHERUNG_BILDER_KOMPRIMIEREN: leer/an = JPEG (Qualität ca. 85 %), höchstens SICHERUNG_BILD_BREITE Pixel breit (Standard 1600);
+// aus = Originaldatei. Braucht ffmpeg (im Image enthalten); ohne ffmpeg oder wenn es nicht kleiner wird, bleibt das Original.
+export const backupCompression = () => !/^(aus|nein|off|0)$/i.test((process.env.SICHERUNG_BILDER_KOMPRIMIEREN || "").trim());
+const backupWidth = () => {
+  const n = Number((process.env.SICHERUNG_BILD_BREITE || "").trim());
+  return Number.isInteger(n) && n >= 320 ? n : 1600;
+};
+let compressWarned = false;
+/** Bild verkleinern (JPEG). Liefert das Original, wenn es ausgeschaltet ist, ffmpeg fehlt oder es nicht mindestens 10 % spart. */
+export async function compressImage(buf) {
+  if (!backupCompression() || !buf?.length) return buf;
+  const dir = mkdtempSync(join(tmpdir(), "rezept-bild-"));
+  try {
+    const src = join(dir, `ein.${imageType(buf).ext}`);
+    const out = join(dir, "aus.jpg");
+    writeFileSync(src, buf);
+    await new Promise((res, rej) =>
+      execFile(process.env.FFMPEG || "ffmpeg", ["-v", "error", "-y", "-i", src, "-frames:v", "1", "-vf", `scale='min(${backupWidth()},iw)':-2`, "-q:v", "4", out], { timeout: 60_000 }, (e) => (e ? rej(e) : res())),
+    );
+    const small = readFileSync(out);
+    return small.length && small.length < buf.length * 0.9 ? small : buf;
+  } catch (e) {
+    // Einmal pro Prozess melden (z. B. ffmpeg fehlt) – das Original bleibt
+    if (!compressWarned) console.error(`[sicherung] Bild nicht verkleinert, Original bleibt (ffmpeg): ${String(e.message).split("\n")[0].slice(0, 200)}`);
+    compressWarned = true;
+    return buf;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}

@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { all, api as tandoorApi, base, getRecipe, isDraft, simplify, toTandoor, uploadImage, recipeUrl, SYSTEM_KW, nutritionProperties } from "./tandoor.mjs";
-import { imageType } from "./bild.mjs";
+import { compressImage, imageType } from "./bild.mjs";
 import { L } from "./i18n.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -223,7 +223,11 @@ export async function syncBackup({ force = false, log = console.log, by = "" } =
       const jsonBuf = recipeJson(r);
       if (inDir.get(`${dir}/rezept.json`) !== blobSha(jsonBuf)) put(`${dir}/rezept.json`, { content: jsonBuf });
       // Bild: nur hochladen, wenn es sich geändert hat; alte Bilddateien mit anderer Endung entfernen
-      const img = await recipeImage(r).catch((e) => (say(`Bild von „${r.name}“ nicht geholt: ${e.message}`), undefined));
+      // verkleinert als JPEG (SICHERUNG_BILDER_KOMPRIMIEREN); gleiche Eingabe ergibt dieselbe Datei, also kein erneutes Hochladen
+      const img = await recipeImage(r).then(
+        (b) => (b ? compressImage(b) : b),
+        (e) => (say(`Bild von „${r.name}“ nicht geholt: ${e.message}`), undefined),
+      );
       const oldImages = [...inDir.keys()].filter((p) => p.startsWith(`${dir}/bild.`));
       if (img) {
         const path = `${dir}/bild.${imageType(img).ext}`;
@@ -258,9 +262,17 @@ export async function syncBackup({ force = false, log = console.log, by = "" } =
     // Bild- und Rezept-Sicherungen spiegeln (nur neue Dateien)
     let mirrored = 0;
     const local = existsSync(LOCAL_BACKUPS()) ? readdirSync(LOCAL_BACKUPS()).filter((f) => BACKUP_FILE.test(f)) : [];
+    // Ältere, noch nicht verkleinerte Bild-Sicherungen gehen verkleinert als .jpg hoch (gleicher Name, andere Endung)
     for (const f of local) {
-      if (h.files.has(`sicherungen/${f}`)) continue;
-      put(`sicherungen/${f}`, { content: readFileSync(join(LOCAL_BACKUPS(), f)) });
+      const jpgName = f.replace(/\.(png|webp)$/, ".jpg");
+      if (h.files.has(`sicherungen/${f}`) || h.files.has(`sicherungen/${jpgName}`)) continue;
+      let content = readFileSync(join(LOCAL_BACKUPS(), f));
+      let name = f;
+      if (/-bild-/.test(f)) {
+        content = await compressImage(content);
+        name = f.replace(/\.(jpg|png|webp)$/, `.${imageType(content).ext}`);
+      }
+      put(`sicherungen/${name}`, { content });
       mirrored++;
     }
 

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { runAgent, readStatus, requestStart, hasStartRequest, retryMinutes } from "./run-agent.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
-import { neurons, neuronsText, googleReady, googleModel, googlePrice } from "./lib/bild.mjs";
+import { neurons, neuronsText, googleReady, googleModel, googlePrice, cleanWish } from "./lib/bild.mjs";
 import { usageMessage } from "./lib/google-nutzung.mjs";
 import { L, locale, recipes as rezepte, cmd, canonicalCommand } from "./lib/i18n.mjs";
 import { planByThread, openPlans, resendPlan, applyPlan, rejectPlan, findByIngredients, servingsDefault, MAX_DAYS } from "./lib/wochenplan.mjs";
@@ -148,8 +148,59 @@ async function onPlanAction(payload, a, user) {
   }
 }
 
+// ---------- Bild-Knöpfe: erst ein Dialog mit optionalem Änderungswunsch, dann erzeugen ----------
+// Die Nachricht zum Knopf merkt sich die Brücke im Speicher (Schlüssel im Dialog); nach einem Neustart einfach erneut klicken.
+const WISH_VIEW = "rz_image_wish";
+const wishOpen = new Map();
+const wishNote = (wish) => (wish ? ` · ${L("Wunsch", "Request")}: „${esc(wish)}“` : "");
+async function askWish(payload, kind, id, user) {
+  const busyKey = kind === "draft" ? `p:${id}` : id;
+  if (imageBusy.has(busyKey)) return;
+  const run = (wish = "") => (kind === "draft" ? onDraftImage(payload, id, user, wish) : onImage(payload, id, user, wish));
+  if (!payload.trigger_id) return run();
+  const key = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  wishOpen.set(key, { run });
+  setTimeout(() => wishOpen.delete(key), 30 * 60_000).unref?.();
+  const text = (t) => ({ type: "plain_text", text: t });
+  try {
+    await slack("views.open", {
+      trigger_id: payload.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: WISH_VIEW,
+        private_metadata: key,
+        title: text(L("Neues Bild", "New picture")),
+        submit: text(L("Erzeugen", "Create")),
+        close: text(L("Abbrechen", "Cancel")),
+        blocks: [
+          {
+            type: "input",
+            block_id: "wish",
+            optional: true,
+            label: text(L("Was soll anders sein? (optional)", "What should be different? (optional)")),
+            element: { type: "plain_text_input", action_id: "text", multiline: true, max_length: 300, placeholder: text(L("z. B. mehr Soße, von oben fotografiert, in der Pfanne serviert", "e.g. more sauce, shot from above, served in the pan")) },
+          },
+          { type: "context", elements: [{ type: "mrkdwn", text: L("Leer lassen = normales neues Bild im einheitlichen Stil.", "Leave empty = normal new picture in the uniform style.") }] },
+        ],
+      },
+    });
+  } catch (e) {
+    // Dialog ging nicht auf (z. B. Knopf zu alt) → wie bisher direkt erzeugen
+    wishOpen.delete(key);
+    log(`Dialog „Neues Bild“ nicht geöffnet: ${e.message}`);
+    return run();
+  }
+}
+async function onWish(payload) {
+  const key = payload.view.private_metadata;
+  const entry = wishOpen.get(key);
+  wishOpen.delete(key);
+  if (!entry) return log("Dialog „Neues Bild“: Knopf unbekannt (Neustart dazwischen?) – bitte erneut klicken");
+  return entry.run(cleanWish(payload.view.state?.values?.wish?.text?.value));
+}
+
 // Knopf „🎨 Neues Bild“ an einem Vorschlag: KI-Bild für den Entwurf (neu) erzeugen; die Knöpfe bleiben
-async function onDraftImage(payload, id, user) {
+async function onDraftImage(payload, id, user, wish = "") {
   const channel = payload.channel.id;
   const { ts, text, blocks = [] } = payload.message;
   const STATUS = "rzimgstatus";
@@ -158,10 +209,10 @@ async function onDraftImage(payload, id, user) {
   imageBusy.add(`p:${id}`);
   try {
     await status(L(`⏳ <@${user}>: Bild wird erzeugt …`, `⏳ <@${user}>: creating picture …`));
-    const r = await regenerateDraftImage(id);
+    const r = await regenerateDraftImage(id, { wish });
     const extra = r.replacesOld ? L(" Beim Übernehmen ersetzt es das Bild des Rezepts – das alte wird vorher gesichert.", " When applied it replaces the recipe's picture – the old one is backed up first.") : "";
-    await status(L(`🎨 Neues KI-Bild von <@${user}> im ${link(r.url, "Entwurf")} · ${r.info}.${extra}`, `🎨 New AI picture by <@${user}> in the ${link(r.url, "draft")} · ${r.info}.${extra}`));
-    log(`rz_draft_image ${id} von ${user}`);
+    await status(L(`🎨 Neues KI-Bild von <@${user}> im ${link(r.url, "Entwurf")} · ${r.info}${wishNote(wish)}.${extra}`, `🎨 New AI picture by <@${user}> in the ${link(r.url, "draft")} · ${r.info}${wishNote(wish)}.${extra}`));
+    log(`rz_draft_image ${id} von ${user}${wish ? ` (Wunsch: ${wish})` : ""}`);
   } catch (e) {
     await status(`⚠️ ${esc(e.message)}`);
     log(`Fehler bei rz_draft_image ${id}: ${e.message}`);
@@ -172,16 +223,17 @@ async function onDraftImage(payload, id, user) {
 
 // Knöpfe an einem Vorschlag
 async function onAction(payload) {
+  if (payload.type === "view_submission" && payload.view?.callback_id === WISH_VIEW) return onWish(payload);
   if (payload.type !== "block_actions") return;
   const a = payload.actions?.[0];
   if (!a?.action_id?.startsWith("rz_")) return;
   const channel = payload.channel?.id;
   if (channel !== CHANNEL()) return;
   const user = payload.user?.id;
-  if (a.action_id === "rz_image") return onImage(payload, a.value, user);
+  if (a.action_id === "rz_image") return askWish(payload, "recipe", a.value, user);
   if (a.action_id.startsWith("rz_all_")) return onAllAction(payload, a, user);
   if (a.action_id.startsWith("rz_plan_")) return onPlanAction(payload, a, user);
-  if (a.action_id === "rz_draft_image") return onDraftImage(payload, a.value, user);
+  if (a.action_id === "rz_draft_image") return askWish(payload, "draft", a.value, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus(L("⏳ Einen Moment …", "⏳ One moment …"), false));
@@ -206,7 +258,7 @@ async function onAction(payload) {
 
 // Knopf „Bild erzeugen“ an einer Nachricht aus /ohne-bild
 const imageBusy = new Set();
-async function onImage(payload, id, user) {
+async function onImage(payload, id, user, wish = "") {
   const channel = payload.channel.id;
   const { ts, text, blocks = [] } = payload.message;
   const status = (t, keepButtons = false) => update(channel, ts, text, [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text: t }] }]);
@@ -214,10 +266,10 @@ async function onImage(payload, id, user) {
   imageBusy.add(id);
   try {
     await status(L(`⏳ <@${user}>: Bild wird erzeugt …`, `⏳ <@${user}>: creating picture …`));
-    const r = await generateRecipeImage(Number(id));
-    const m = noImageMessage({ id, name: r.name, url: r.url }, [L(`🎨 von <@${user}> mit KI erzeugt und in Tandoor gespeichert`, `🎨 created with AI by <@${user}> and saved in Tandoor`), r.info].filter(Boolean).join(" · "));
+    const r = await generateRecipeImage(Number(id), { wish });
+    const m = noImageMessage({ id, name: r.name, url: r.url }, [L(`🎨 von <@${user}> mit KI erzeugt und in Tandoor gespeichert`, `🎨 created with AI by <@${user}> and saved in Tandoor`), r.info].filter(Boolean).join(" · ") + wishNote(wish));
     await update(channel, ts, m.text, m.blocks);
-    log(`rz_image ${id} von ${user}`);
+    log(`rz_image ${id} von ${user}${wish ? ` (Wunsch: ${wish})` : ""}`);
   } catch (e) {
     await status(`⚠️ ${esc(e.message)}`, true);
     log(`Fehler bei rz_image ${id}: ${e.message}`);
@@ -354,7 +406,7 @@ const COMMANDS = () => [
   ["/offen", L("[neu]", "[resend]"), L("Vorschläge, die auf deine Entscheidung warten – mit Link; mit `neu` werden alle noch einmal mit den aktuellen Knöpfen in den Kanal geschickt", "Proposals waiting for your decision – with link; with `resend` they are all posted to the channel again with the current buttons")],
   ["/rezept", L("<Name>", "<name>"), L("Rezept in Tandoor suchen, mit Status", "Search a recipe in Tandoor, with status")],
   ["/ohne-bild", L("[Anzahl | Name]", "[count | name]"), L("Rezepte ohne Bild als einzelne Nachrichten im Kanal, mit Knopf für ein KI-Foto (Standard 5)", "Recipes without a picture as single messages in the channel, with a button for an AI photo (default 5)")],
-  ["/bild-neu", L("<Name | ID>", "<name | ID>"), L("Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird)", "New AI picture from Google for one recipe (replaces the old one, which is backed up first)")],
+  ["/bild-neu", L("<Name | ID>[: Wunsch]", "<name | ID>[: request]"), L("Neues KI-Bild mit Google für ein Rezept (ersetzt das alte, das vorher gesichert wird); nach einem Doppelpunkt optional, was anders sein soll, z. B. `/bild-neu Lasagne: mehr Käse, von oben`", "New AI picture from Google for one recipe (replaces the old one, which is backed up first); optionally after a colon what should be different, e.g. `/new-image lasagna: more cheese, from above`")],
   ["/bild-alle", "", L("Alle Rezeptbilder mit Google neu erzeugen – mit doppelter Rückfrage, läuft im Hintergrund", "Recreate all recipe pictures with Google – asks twice, runs in the background")],
   ["/pruefen", L("[Anzahl]", "[count]"), L("Qualitätsprüfung jetzt starten (mit Anzahl: heute so viele Rezepte zusätzlich zum Tageswert)", "Start the quality check now (with a count: that many recipes on top of today's amount)")],
   ["/pruefen-rezept", L("<Name | ID>", "<name | ID>"), L("Ein Rezept gezielt neu prüfen – auch wenn es schon geprüft ist, zählt nicht zum Tageswert", "Check one recipe again – even if it was already checked, does not count towards the daily amount")],
@@ -455,17 +507,22 @@ const commands = {
   "/bild-neu": async (c) => {
     if (!inChannel(c)) return notInChannel();
     if (!googleReady()) return L("Google ist nicht eingerichtet – `GEMINI_API_KEY` fehlt.", "Google is not set up – `GEMINI_API_KEY` is missing.");
-    const q = c.text.trim();
-    if (!q) return L("Für welches Rezept? Beispiel: `/bild-neu Rahmwirsing` oder `/bild-neu 149567`", "For which recipe? Example: `/new-image lasagna` or `/new-image 149567`");
-    const { hit, hits } = await resolveRecipe(q);
+    const text = c.text.trim();
+    if (!text) return L("Für welches Rezept? Beispiel: `/bild-neu Rahmwirsing`, `/bild-neu 149567` oder mit Wunsch `/bild-neu Rahmwirsing: in einer Schüssel, von oben`", "For which recipe? Example: `/new-image lasagna`, `/new-image 149567` or with a request `/new-image lasagna: more cheese, from above`");
+    // „Name: Wunsch“ – findet der Teil vor dem Doppelpunkt nichts, gehört der Doppelpunkt zum Namen
+    const colon = text.indexOf(":");
+    let q = colon > 0 ? text.slice(0, colon).trim() : text;
+    let wish = colon > 0 ? cleanWish(text.slice(colon + 1)) : "";
+    let { hit, hits } = await resolveRecipe(q);
+    if (colon > 0 && !hit && !hits.length) ({ hit, hits } = await resolveRecipe((q = text)), (wish = ""));
     if (!hit) {
       if (!hits.length) return L(`Kein Rezept zu „${esc(q)}“ gefunden.`, `No recipe found for “${esc(q)}”.`);
       return [L(`🔎 Mehrere Treffer zu „${esc(q)}“ – bitte genauer, oder mit ID:`, `🔎 Several hits for “${esc(q)}” – please be more specific, or use the ID:`), ...hits.map((h) => `• ${link(h.url, h.name)} · \`${cmd("/bild-neu")} ${h.id}\``)].join("\n");
     }
-    const r = await generateRecipeImage(hit.id, { replace: true });
-    const m = noImageMessage({ id: r.id, name: r.name, url: r.url }, [L(`🎨 neues Bild für <@${c.user_id}>`, `🎨 new picture for <@${c.user_id}>`), r.info, r.backup ? L("altes Bild gesichert", "old picture backed up") : ""].filter(Boolean).join(" · "));
+    const r = await generateRecipeImage(hit.id, { replace: true, wish });
+    const m = noImageMessage({ id: r.id, name: r.name, url: r.url }, [L(`🎨 neues Bild für <@${c.user_id}>`, `🎨 new picture for <@${c.user_id}>`), r.info, r.backup ? L("altes Bild gesichert", "old picture backed up") : ""].filter(Boolean).join(" · ") + wishNote(wish));
     await post(c.channel_id, m.text, m.blocks);
-    log(`/bild-neu ${hit.id} von ${c.user_id}`);
+    log(`/bild-neu ${hit.id} von ${c.user_id}${wish ? ` (Wunsch: ${wish})` : ""}`);
     return L(`✅ Neues Bild für ${link(r.url, r.name)} ist da (Nachricht im Kanal).`, `✅ New picture for ${link(r.url, r.name)} is ready (message in the channel).`);
   },
 

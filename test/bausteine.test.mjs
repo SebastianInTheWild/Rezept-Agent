@@ -64,6 +64,55 @@ test("Bildformat am Inhalt erkennen", () => {
   assert.equal(bild.imageType(Buffer.from([0xff, 0xd8, 0xff])).ext, "jpg");
 });
 
+test("Bilder für Sicherungen verkleinern: ohne ffmpeg, ausgeschaltet oder kein Gewinn → Original", async () => {
+  const big = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(5000, 7)]);
+  const old = process.env.FFMPEG;
+  process.env.FFMPEG = "/gibt/es/nicht/ffmpeg";
+  try {
+    assert.equal(await bild.compressImage(big), big, "ohne ffmpeg");
+  } finally {
+    if (old === undefined) delete process.env.FFMPEG;
+    else process.env.FFMPEG = old;
+  }
+  process.env.SICHERUNG_BILDER_KOMPRIMIEREN = "aus";
+  assert.equal(bild.backupCompression(), false);
+  assert.equal(await bild.compressImage(big), big, "ausgeschaltet");
+  delete process.env.SICHERUNG_BILDER_KOMPRIMIEREN;
+  assert.equal(bild.backupCompression(), true, "Standard an");
+});
+
+test("Bilder für Sicherungen verkleinern mit ffmpeg: großes PNG → kleineres JPEG, höchstens 1600 px", async (t) => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  try {
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+  } catch {
+    return t.skip("ffmpeg nicht installiert (im Docker-Image vorhanden)");
+  }
+  const dir = mkdtempSync(join(tmpdir(), "bild-test-"));
+  try {
+    // Fotoähnlich (Verläufe mit Rauschen): ein glattes Testmuster ließe sich als PNG besser packen als als JPEG
+    const src = join(dir, "gross.png");
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=2400x1600,noise=alls=25:allf=t", "-frames:v", "1", src]);
+    const big = readFileSync(src);
+    // Derselbe Aufruf wie in compressImage direkt – damit ein ffmpeg-Fehler hier sichtbar wird statt still das Original zu liefern
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-i", src, "-frames:v", "1", "-vf", "scale='min(1600,iw)':-2", "-q:v", "4", join(dir, "direkt.jpg")]);
+    const direct = readFileSync(join(dir, "direkt.jpg"));
+    assert.ok(direct.length < big.length * 0.9, `JPEG ${direct.length} B soll deutlich kleiner sein als PNG ${big.length} B`);
+    const small = await bild.compressImage(big);
+    assert.equal(bild.imageType(small).ext, "jpg");
+    assert.ok(small.length < big.length * 0.9, `${small.length} < ${big.length}`);
+    // JPEG-Größe aus dem SOF0/SOF2-Block lesen
+    let w = 0;
+    for (let i = 2; i < small.length - 9; i++) if (small[i] === 0xff && (small[i + 1] === 0xc0 || small[i + 1] === 0xc2)) (w = small.readUInt16BE(i + 7)), (i = small.length);
+    assert.equal(w, 1600);
+    assert.ok((await bild.compressImage(big)).equals(small), "gleiche Eingabe → gleiche Datei (kein erneutes Hochladen)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Claude-Limit erkennen", () => {
   for (const s of ["Claude AI usage limit reached|1730000000", "You've hit your limit · resets 3pm (Europe/Berlin)", "API Error: 429 rate_limit_error", "Error: Overloaded"]) assert.ok(runAgent.isLimitError(s), s);
   for (const s of ["Error: tool failed", "", "propose: ok"]) assert.ok(!runAgent.isLimitError(s), s);

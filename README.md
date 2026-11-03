@@ -20,7 +20,7 @@ Nothing is changed in Tandoor without you: every import and every improvement fi
 
 **Uniform picture style:** all AI photos use the same style – table, light, angle and tableware are defined in [`agents/bild-stil.md`](agents/bild-stil.md). New recipes always get an AI photo in this style, even if the source has its own photo; the agent only describes what the dish looks like (based on the source photo or the video stills). Change the style in that file (applies from the next picture, via GitHub without restart); `/all-images` brings all existing recipes to the style. `BILD_EINHEITLICH=aus` uses the source photo again. Every AI picture gets the keyword **`ki-bild`** in Tandoor (for filtering); internally the agent remembers model, date and style. If you replace an AI picture in Tandoor with your own photo, the keyword disappears with the next daily check.
 
-**Pictures when checking:** improvement proposals also bring the picture to the uniform style – if the original already has an AI picture in the current style it stays, otherwise the agent creates a new one. When **applied**, the old picture is backed up first (`daten/rezepte/sicherungen`, like `/new-image`); if the backup fails, the old picture stays. Every proposal in Slack has a **🎨 New picture** button to (re)create the picture afterwards, e.g. when it failed at creation; this doesn't count against `BILD_PRO_TAG`.
+**Pictures when checking:** improvement proposals also bring the picture to the uniform style – if the original already has an AI picture in the current style it stays, otherwise the agent creates a new one. When **applied**, the old picture is backed up first (`daten/rezepte/sicherungen`, like `/new-image`); if the backup fails, the old picture stays. Every proposal in Slack has a **🎨 New picture** button to (re)create the picture afterwards, e.g. when it failed at creation; this doesn't count against `BILD_PRO_TAG`. The button (like **🎨 Create picture** from `/no-image`) opens a small dialog where you can optionally write what should be different ("more sauce, shot from above"). Leave it empty for a normal new picture.
 
 ## Setup with Portainer
 
@@ -75,7 +75,7 @@ Every day (default 03:30, changeable in the schedule or via **Back up now**) the
 
 Only changes are transferred. If suddenly more than half of the recipes (or all) are missing, the sync stops instead of marking everything as deleted – e.g. when Tandoor is unreachable. Deleted recipes and errors are reported in the Slack channel.
 
-**Setup:** create a **private, empty** repo on GitHub (e.g. `recipe-backup`), then under GitHub → Settings → Developer settings → **Fine-grained tokens** create a token for this repo only with **Contents: Read and write**. Enter `BACKUP_REPO` (`owner/name`) and `BACKUP_TOKEN` in the web UI under Settings → GitHub backup and restart. Pictures take space (AI pictures about 1–2 MB each); a few hundred MB are normal for several hundred recipes.
+**Setup:** create a **private, empty** repo on GitHub (e.g. `recipe-backup`), then under GitHub → Settings → Developer settings → **Fine-grained tokens** create a token for this repo only with **Contents: Read and write**. Enter `BACKUP_REPO` (`owner/name`) and `BACKUP_TOKEN` in the web UI under Settings → GitHub backup and restart. Pictures are shrunk for the backup: JPEG at about 85 % quality, at most 1600 pixels wide (typically a few hundred KB instead of 1–2 MB per AI picture). This applies to the recipe pictures in GitHub and to the picture backups before replacing (`daten/rezepte/sicherungen`). Configurable under Settings → GitHub backup (`SICHERUNG_BILDER_KOMPRIMIEREN=aus` keeps the originals, `SICHERUNG_BILD_BREITE` changes the width). The first run afterwards uploads all recipe pictures once in the smaller form; the large originals stay in the repo's Git history.
 
 ### Meal plan and what to cook
 
@@ -91,6 +91,17 @@ New recipes and improvement proposals get **nutrition per serving** (calories, p
 
 If an agent hits the Claude usage limit ("You've hit your limit"), it retries every 30 minutes (`CLAUDE_WIEDERHOLEN_MIN`) until it works again – for at most 24 hours. The channel gets a message, and a "✅ worked" once it's caught up. Jobs from Slack (link, photo, meal plan) are retried by the bridge the same way, with the time in the thread. The web UI shows the next try.
 
+**AI provider: Claude or Google Gemini:** under Settings → AI provider, `KI_ANBIETER` decides who imports and checks recipes and makes the meal plan:
+
+| `KI_ANBIETER` | Behaviour |
+| --- | --- |
+| empty or `claude,google` | Claude; at the Claude limit Google Gemini continues right away (default) |
+| `google,claude` | Gemini first; if that fails, Claude |
+| `claude` | Claude only; at the limit retry every 30 minutes (as before) |
+| `google` | Gemini only, Claude is never started |
+
+Gemini needs the Google API key (the same as for AI photos), model `GEMINI_TEXT_MODELL` (default `gemini-flash-latest`). It gets the same instructions as the agent (`prompt.md`) and all the data the agent would otherwise fetch itself (job, standard, link and video results, photos, recipes) and answers in one request; the result goes through the same checks (up to two corrections on errors). Every proposal says "Created with Google Gemini …" in its changes (at the limit with "– please check carefully"); for the meal plan it's in the summary. Claude works as an agent in several steps and is usually more thorough with difficult sources; Gemini costs per request (`/google` counts it), Claude is included in the subscription. Which agents Gemini can take over is set in `agent.json` under `"fallback"`.
+
 ### Slack commands
 
 Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-image`, `/all-images` and `/per-day <number>` only work in the recipe channel. German names in brackets.
@@ -101,7 +112,7 @@ Answers are only visible to you; `/check`, `/check-recipe`, `/no-image`, `/new-i
 | `/open` (`/offen`) `[resend]` | Proposals waiting for a decision, with link. `/open resend` posts all open proposals and meal plans to the channel again, with the current buttons (e.g. **🎨 New picture**). The old message becomes a link to the new one; replies in its thread still work |
 | `/recipe <name>` (`/rezept`) | Search a recipe in Tandoor, with status |
 | `/no-image [count \| name]` (`/ohne-bild`) | Recipes without a picture, each as its own message in the channel with a **🎨 Create picture** button (AI photo straight into Tandoor, then **🔄 Create another picture**). Default 5; recipes already shown come back after 7 days, with a name it searches specifically. Own photos are never replaced. |
-| `/new-image <name \| ID>` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. With several hits it lists them with IDs. |
+| `/new-image <name \| ID>[: request]` (`/bild-neu`) | New AI picture from Google (`GOOGLE_BILD_MODELL`) for one recipe, even if it already has a photo. Optionally after a colon what should be different, e.g. `/new-image lasagna: more cheese, from above`. With several hits it lists them with IDs. |
 | `/all-images` (`/bild-alle`) | Recreate recipe pictures with Google: **all**, **only without AI picture** (own photos, recipes without a picture) or **only old style** (AI pictures made before a change to `agents/bild-stil.md`). Asks twice (with count and estimated cost), only the person who asked can confirm. Runs in the background with progress and a **⏹️ Pause** button, continues after a restart, pauses after 3 errors in a row (e.g. Google quota). |
 | `/check [count]` (`/pruefen`) | Start the quality check now; with a count it may check that many recipes on top of today's amount |
 | `/check-recipe <name \| ID>` (`/pruefen-rezept`) | Check one recipe again right away – also if it was already checked, rejected or set to “leave as is”; does not count towards the daily amount |

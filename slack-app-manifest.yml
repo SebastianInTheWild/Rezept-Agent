@@ -64,7 +64,7 @@ features:
     - command: /bild-neu
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands
       description: Neues KI-Bild mit Google für ein Rezept
-      usage_hint: "<Name | ID>"
+      usage_hint: "<Name | ID>[: Wunsch]"
       should_escape: false
     - command: /bild-alle
       url: https://rezepte.hamm.schmalzbauer.work/slack/commands

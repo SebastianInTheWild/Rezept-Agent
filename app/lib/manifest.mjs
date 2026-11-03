@@ -133,7 +133,7 @@ const EN = {
     "/offen": ["Proposals waiting for your decision (“resend” posts them all again)", "[resend]"],
     "/rezept": ["Search a recipe in Tandoor, with status", "<name>"],
     "/ohne-bild": ["Show recipes without a picture, with a button for an AI photo", "[count | name]"],
-    "/bild-neu": ["New AI picture from Google for one recipe", "<name | ID>"],
+    "/bild-neu": ["New AI picture from Google for one recipe", "<name | ID>[: request]"],
     "/bild-alle": ["Recreate all recipe pictures with Google (asks first)"],
     "/pruefen": ["Start the quality check now", "[count]"],
     "/pruefen-rezept": ["Check one recipe again", "<name | ID>"],

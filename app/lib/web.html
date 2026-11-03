@@ -421,7 +421,7 @@ function card(item) {
   if (item.kind === "sicherung" && item.last) add("Zuletzt:", `${fmt(item.last.at)} · ${item.last.note}`);
   if (item.kind === "agent") {
     if (item.running) add("Seit:", fmt(item.since));
-    if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}`);
+    if (item.last) add("Zuletzt:", `${fmt(item.last.at)}${item.last.by ? ` (${item.last.by})` : ""}${item.last.provider === "google" ? " · Google Gemini" : ""}`);
     if (item.check && (!item.last || item.check.at > item.last.at)) add("Letzte Prüfung:", `${fmt(item.check.at)} · ${t("nichts zu tun")}`);
     if (item.retry) add("Claude-Limit – nächster Versuch:", fmt(item.retry.next));
   }

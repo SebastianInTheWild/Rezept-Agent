@@ -3,10 +3,10 @@
 // Autor: SebastianInTheWild · MIT-Lizenz
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { all, api, base, getRecipe, uploadImage, simplify, toTandoor, ingText, recipeUrl, KW, STATUS_KW, AI_KW, SYSTEM_KW, DRAFT_PREFIXES, draftPrefix, isDraft, SERVINGS_TEXT, nutritionProperties, NUTRIENTS } from "./tandoor.mjs";
-import { generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
+import { compressImage, generateImage, imageReady, imageSetupHint, imageType, lastImageNote, lastImageInfo, styleId } from "./bild.mjs";
 import { slack, post, update, slackReady, link, esc } from "./slack.mjs";
 import { L, lang, locale, cmd } from "./i18n.mjs";
 import { analyzeVideo, isVideoUrl } from "./video.mjs";
@@ -279,9 +279,10 @@ async function fetchRecipeImage(r) {
   return buf;
 }
 
-// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt)
+// Altes Bild vor dem Ersetzen sichern (daten/rezepte/sicherungen, wird nach 180 Tagen aufgeräumt) – verkleinert als JPEG,
+// außer SICHERUNG_BILDER_KOMPRIMIEREN=aus
 async function backupImage(r) {
-  const buf = await fetchRecipeImage(r);
+  const buf = await compressImage(await fetchRecipeImage(r));
   mkdirSync(join(REZEPTE, "sicherungen"), { recursive: true });
   const file = join(REZEPTE, "sicherungen", `${r.id}-bild-${new Date().toISOString().replace(/[:.]/g, "-")}.${imageType(buf).ext}`);
   writeFileSync(file, buf);
@@ -293,7 +294,7 @@ async function backupImage(r) {
  * Ohne replace wird ein eigenes Foto nie ersetzt. Mit replace (/bild-neu, /bild-alle) nur mit Google und erst,
  * nachdem das alte Bild gesichert ist – klappt die Sicherung nicht, bleibt das alte Bild.
  */
-export async function generateRecipeImage(id, { replace = false } = {}) {
+export async function generateRecipeImage(id, { replace = false, wish = "" } = {}) {
   const skipError = (msg) => Object.assign(new Error(msg), { skip: true }); // /bild-alle überspringt solche Rezepte
   if (!replace && !imageReady()) throw new Error(`${L("Kein Bild-Anbieter eingerichtet", "No image provider set up")} – ${imageSetupHint()}`);
   const r = await getRecipe(id).catch((e) => {
@@ -307,7 +308,7 @@ export async function generateRecipeImage(id, { replace = false } = {}) {
     backup = await backupImage(r).catch((e) => {
       throw skipError(L(`Altes Bild ließ sich nicht sichern (${e.message}) – es bleibt unverändert`, `Could not back up the old picture (${e.message}) – left unchanged`));
     });
-  const jpg = await generateImage(simplify(r), REZEPTE, replace ? { only: "google", noLimit: true } : {});
+  const jpg = await generateImage(simplify(r), REZEPTE, { ...(replace ? { only: "google", noLimit: true } : {}), wish });
   if (DRY) return { ok: true, dry: true, name: r.name, url: recipeUrl(r.id) };
   await uploadImage(r.id, jpg, String(r.id));
   await markAiImage(r.id, lastImageInfo());
@@ -702,7 +703,7 @@ export async function propose() {
     if (d.image_file) {
       const inbox = resolve(REZEPTE, "inbox");
       const file = resolve(d.image_file);
-      if (!file.startsWith(inbox + "/") || !existsSync(file)) warnings.push(L("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert", "image_file must be a picture from daten/rezepte/inbox – ignored"));
+      if (!file.startsWith(inbox + sep) || !existsSync(file)) warnings.push(L("image_file muss ein Bild aus daten/rezepte/inbox sein – ignoriert", "image_file must be a picture from daten/rezepte/inbox – ignored"));
       else await uploadImage(draft.id, readFileSync(file), id).then(() => (hasImage = true), (e) => warnings.push(`${L("Standbild nicht übernommen", "Still image not used")} (${e.message.slice(0, 80)})`));
     }
     const image = !hasImage && kind === "import" && d.image_url;
@@ -793,12 +794,12 @@ const actions = (p) => ({
 /**
  * „🎨 Neues Bild“ am Vorschlag: KI-Bild für den Entwurf (neu) erzeugen – etwa wenn es beim Anlegen nicht geklappt hat.
  * Bei Verbesserungsvorschlägen ersetzt es beim Übernehmen das Bild des Originals; das alte wird vorher gesichert.
- * Ausdrücklich angefordert → zählt nicht gegen BILD_PRO_TAG.
+ * Ausdrücklich angefordert → zählt nicht gegen BILD_PRO_TAG. wish = optionaler Änderungswunsch aus dem Slack-Dialog.
  */
-export async function regenerateDraftImage(id) {
+export async function regenerateDraftImage(id, { wish = "" } = {}) {
   const { store, p } = openProposal(id);
   const draft = await getRecipe(p.draft_id);
-  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true }); // ohne Vorlage aus dem Video – bewusst die normale Erzeugung
+  const jpg = await generateImage({ ...simplify(draft), image_prompt: p.image_prompt }, REZEPTE, { noLimit: true, wish }); // ohne Vorlage aus dem Video – bewusst die normale Erzeugung
   if (DRY) return { ok: true, dry: true, name: p.name };
   await uploadImage(p.draft_id, jpg, id);
   mkdirSync(join(REZEPTE, "bilder"), { recursive: true });
@@ -941,7 +942,7 @@ function videoFrame(path) {
   if (!path) return null;
   const inbox = resolve(REZEPTE, "inbox");
   const file = resolve(path);
-  return file.startsWith(inbox + "/") && /^video-[\w-]+\.jpe?g$/i.test(basename(file)) && existsSync(file) ? file : null;
+  return file.startsWith(inbox + sep) && /^video-[\w-]+\.jpe?g$/i.test(basename(file)) && existsSync(file) ? file : null;
 }
 
 function dropImage(p) {

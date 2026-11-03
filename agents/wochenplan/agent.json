@@ -6,6 +6,7 @@
   "icon": "mdi:calendar-week",
   "enabled": true,
   "schedule": [],
+  "fallback": "wochenplan",
   "allowedTools": [
     "Bash(node tandoor.mjs plan-context)",
     "Bash(node tandoor.mjs plan-propose)",

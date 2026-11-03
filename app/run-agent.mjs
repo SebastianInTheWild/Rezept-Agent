@@ -85,7 +85,7 @@ export async function runAgent(id, { quiet = false, by = "direkt" } = {}) {
     throw e;
   } finally {
     rmSync(statusFile(id, "status.json"), { force: true });
-    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000), ...(r?.limit ? { limit: true } : {}) };
+    const entry = { at: new Date(started).toISOString(), by, result: r?.result || "fehler", note: r?.note || "", duration_s: Math.round((Date.now() - started) / 1000), ...(r?.limit ? { limit: true } : {}), ...(r?.provider ? { provider: r.provider } : {}) };
     // Am Claude-Limit gescheitert: später erneut (Läufe aus Slack wiederholt die Slack-Brücke selbst, mit ihrem Auftrag)
     if (r?.limit && by !== "slack") entry.retry = scheduleRetry(id, by)?.next || null;
     else if (r && r.result !== "fehler") clearRetry(id);
@@ -134,30 +134,62 @@ async function run(id, quiet, by) {
     if (agent.maxTurnsPerItem && /^\d+$/.test(res)) maxTurns += Number(res) * agent.maxTurnsPerItem;
   }
 
-  // {{DATA}} in Anweisung und Rechten = Datenordner des Agenten (dort darf er z. B. seinen Plan ablegen)
-  const fill = (s) => s.replaceAll("{{DATA}}", data);
-  const args = ["-p", fill(agent.promptText), "--output-format", "text", "--max-turns", String(maxTurns), "--add-dir", data];
-  if (agent.allowedTools?.length) args.push("--allowedTools", ...agent.allowedTools.map(fill));
-  if (agent.model || process.env.CLAUDE_MODEL) args.push("--model", agent.model || process.env.CLAUDE_MODEL);
-  log(`Claude startet${by !== "direkt" ? ` (${by})` : ""}`);
-  writeStatus(id, "status.json", { running: true, since: new Date().toISOString(), by });
-  let tail = ""; // Ende der Ausgabe – daran erkennen wir das Claude-Limit
-  const keep = (d) => {
-    appendFileSync(logFile, d);
-    tail = (tail + d).slice(-4000);
-  };
-  const code = await new Promise((resolve) => {
-    const p = spawn(process.env.CLAUDE_BIN || "claude", args, { cwd: APP, env, stdio: ["ignore", "pipe", "pipe"] });
-    p.stdout.on("data", keep);
-    p.stderr.on("data", keep);
-    p.on("close", resolve);
-    p.on("error", (e) => {
-      log(`Claude nicht startbar: ${e.message}`);
-      resolve(-1);
+  // KI-Anbieter in der eingestellten Reihenfolge (KI_ANBIETER, nur für Agenten mit „fallback“ in agent.json):
+  // Claude als Agent mit Werkzeugen, Google Gemini in einer Anfrage (lib/ersatz.mjs). Claude → Gemini nur am Claude-Limit,
+  // Gemini → Claude bei jedem Fehler.
+  const order = agent.fallback ? (await import("./lib/ersatz.mjs")).providerOrder() : ["claude"];
+  let claude = null; // { code, limit } des Claude-Laufs
+  let googleNote = "";
+  for (const provider of order) {
+    if (provider === "google") {
+      const { fallbackModel, runFallback } = await import("./lib/ersatz.mjs");
+      const reason = claude?.limit ? "limit" : "primary";
+      log(reason === "limit" ? `Claude-Limit erreicht – Google Gemini (${fallbackModel()}) springt ein` : `Google Gemini (${fallbackModel()}) startet${by !== "direkt" ? ` (${by})` : ""}`);
+      writeStatus(id, "status.json", { running: true, since: new Date().toISOString(), by });
+      const f = await runFallback(agent, { log, reason }).catch((e) => ({ ok: false, note: e.message }));
+      log(`Gemini: ${f.note}`);
+      if (f.ok) return { code: 0, limit: false, result: "ok", note: f.note, provider: "google" };
+      googleNote = f.note;
+      if (claude) break; // Claude war schon dran – dessen Ergebnis zählt
+      continue;
+    }
+    claude = await runClaude();
+    if (claude.code === 0 || !claude.limit) break; // Erfolg oder echter Fehler: kein Wechsel zu Gemini
+  }
+  if (!claude) {
+    // Nur Gemini eingestellt und gescheitert
+    const name = L(agent.name || id, agent.name_en || agent.name || id);
+    if (by !== "slack" && slackReady() && process.env.SLACK_CHANNEL) await post(process.env.SLACK_CHANNEL, L(`⚠️ Agent „${name}“: Google Gemini hat es nicht geschafft (${googleNote}). Details im Log ${logFile}.`, `⚠️ Agent “${name}”: Google Gemini didn't manage (${googleNote}). Details in the log ${logFile}.`)).catch(() => {});
+    return { code: 1, limit: false, result: "fehler", note: `Gemini: ${googleNote}`, provider: "google" };
+  }
+  const { code, limit } = claude;
+
+  async function runClaude() {
+    // {{DATA}} in Anweisung und Rechten = Datenordner des Agenten (dort darf er z. B. seinen Plan ablegen)
+    const fill = (s) => s.replaceAll("{{DATA}}", data);
+    const args = ["-p", fill(agent.promptText), "--output-format", "text", "--max-turns", String(maxTurns), "--add-dir", data];
+    if (agent.allowedTools?.length) args.push("--allowedTools", ...agent.allowedTools.map(fill));
+    if (agent.model || process.env.CLAUDE_MODEL) args.push("--model", agent.model || process.env.CLAUDE_MODEL);
+    log(`Claude startet${by !== "direkt" ? ` (${by})` : ""}`);
+    writeStatus(id, "status.json", { running: true, since: new Date().toISOString(), by });
+    let tail = ""; // Ende der Ausgabe – daran erkennen wir das Claude-Limit
+    const keep = (d) => {
+      appendFileSync(logFile, d);
+      tail = (tail + d).slice(-4000);
+    };
+    const code = await new Promise((resolve) => {
+      const p = spawn(process.env.CLAUDE_BIN || "claude", args, { cwd: APP, env, stdio: ["ignore", "pipe", "pipe"] });
+      p.stdout.on("data", keep);
+      p.stderr.on("data", keep);
+      p.on("close", resolve);
+      p.on("error", (e) => {
+        log(`Claude nicht startbar: ${e.message}`);
+        resolve(-1);
+      });
     });
-  });
-  log(`Claude beendet (Code ${code})`);
-  const limit = code !== 0 && isLimitError(tail);
+    log(`Claude beendet (Code ${code})`);
+    return { code, limit: code !== 0 && isLimitError(tail) };
+  }
   if (code !== 0) {
     const name = L(agent.name || id, agent.name_en || agent.name || id);
     const msg = limit
