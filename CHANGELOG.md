@@ -8,6 +8,10 @@ Jeder Abschnitt ist eine Version (Zeitpunkt des Merges auf `main`, deutsche Zeit
 
 _Kommt mit dem nächsten Merge auf `main`. Sobald das Image gebaut ist, ersetzt GitHub Actions diese Überschrift durch die Version und den Image-Tag._
 
+_Noch nichts._
+
+## 2026-11-03 11-50 · [PR #17](https://github.com/SebastianInTheWild/Rezept-Agent/pull/17) · Image-Tag `2026-11-03_11-50`
+
 ### Neu
 - **Versionsnummer** im Format `JJJJ-MM-TT HH-MM`: der Zeitpunkt des Commits auf main (deutsche Zeit), aus dem das Image gebaut wird – jeder gemergte Pull Request ergibt automatisch eine neue Version, der wöchentliche Neubau behält sie. Sichtbar oben rechts in der Weboberfläche (mit Link zum Commit) und in der Fußzeile, in der Slack-Neustart-Meldung („Update von *2026-11-02 20-41* auf *2026-11-03 10-11*“), unter `/hilfe` und beim Start im Container-Log. Neuer Image-Tag je Version (`:2026-11-03_10-11`) zum gezielten Zurückgehen per `IMAGE_TAG`; das Image-Label `org.opencontainers.image.version` trägt sie ebenfalls. Lokal gebaut: `dev`.
 - **Changelog nach Versionen:** Jeder Abschnitt ist eine Version mit Pull Request und Image-Tag, unter dem die Änderung zu ziehen ist (`ghcr.io/sebastianinthewild/rezept-agent:<Tag>`). Ältere Stände wurden nachträglich ihrem Merge zugeordnet; für sie gibt es nur die Tags `sha-<commit>`. Ab jetzt ersetzt GitHub Actions nach jedem Image-Bau die Überschrift „Unveröffentlicht“ automatisch durch Version, PR und Tag (`JJJJ-MM-TT_HH-MM`).
