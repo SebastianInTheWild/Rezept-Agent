@@ -10,7 +10,7 @@ The template is **Rahmwirsing** (creamed savoy cabbage, in `context` under `refe
 ## Structure
 - **Name:** short and factual, no advertising ("The best … ever"), no blog or brand names, no "recipe" in the name. Additions in brackets only if they distinguish ("Pasta salad with pesto" instead of "Tortellini salad with pesto (quick recipe)"). Grandma's recipes may be called "… (Grandma's recipe)".
 - **Description:** one factual sentence about what it is, e.g. "Creamy savoy cabbage with vegetable stock, cream and butter." No blog text.
-- **Servings:** `servings` is the number, the unit is always "servings". For cakes, cookies and tray bakes the number of pieces counts as servings.
+- **Servings:** `servings` is the number, the unit is always "servings". Imported recipes are scaled to **4 servings**. Exception baked goods (cakes, tortes, bread, rolls, cookies, muffins, tray bakes): keep the source quantity, the number of pieces counts as servings.
 - **Times:** `working_time` = active work, `waiting_time` = baking, cooling, resting, braising (minutes).
 - **Equipment:** `devices` = everything you need: bowls, knife, chopping board, pot, pan, baking tin with size ("Springform tin 26 cm"), hand mixer, stick blender, oven. Tandoor shows it as the first step "Required equipment".
 
