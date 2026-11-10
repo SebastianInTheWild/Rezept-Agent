@@ -8,6 +8,10 @@ Jeder Abschnitt ist eine Version (Zeitpunkt des Merges auf `main`, deutsche Zeit
 
 _Kommt mit dem nächsten Merge auf `main`. Sobald das Image gebaut ist, ersetzt GitHub Actions diese Überschrift durch die Version und den Image-Tag._
 
+_Noch nichts._
+
+## 2026-11-10 20-37 · [PR #18](https://github.com/SebastianInTheWild/Rezept-Agent/pull/18) · Image-Tag `2026-11-10_20-37`
+
 ### Geändert
 - **Import auf 4 Portionen:** Rezepte von Webseiten, HelloFresh, Videos, Sprachnachrichten, Fotos und Text werden immer auf 4 Portionen umgerechnet (Mengen sinnvoll gerundet, auch Mengen im Schritttext; ohne Portionsangabe geschätzt). HelloFresh nimmt die 4-Personen-Variante. Ausnahme Gebäck – Kuchen, Torten, Brot, Brötchen, Plätzchen, Muffins, Bleche: Die Menge der Quelle bleibt, die Anzahl Stücke zählt als Portionen. Steht in `changes` des Vorschlags.
 
