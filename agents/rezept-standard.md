@@ -10,7 +10,7 @@ Vorlage ist der **Rahmwirsing** (steht in `context` unter `reference`). So solle
 ## Aufbau
 - **Name:** sachlich und kurz, deutsch, ohne Werbung („Das beste … aller Zeiten“), ohne Blog- oder Markennamen, ohne „Rezept“ im Namen. Zusätze in Klammern nur, wenn sie unterscheiden („Nudelsalat mit Pesto“ statt „Tortellini Salat mit Pesto (schnelles Rezept)“). Omas Rezepte dürfen „nach Omas Rezept“ heißen.
 - **Beschreibung:** ein sachlicher Satz, was es ist, z. B. „Cremiger Rahmwirsing mit Gemüsefond, Sahne und Butter.“ Kein Blog-Text.
-- **Portionen:** `servings` ist die Anzahl, die Einheit heißt immer „Portionen“. Bei Kuchen, Plätzchen und Blechen die Anzahl Stücke als Portionen.
+- **Portionen:** `servings` ist die Anzahl, die Einheit heißt immer „Portionen“. Importierte Rezepte werden auf **4 Portionen** umgerechnet. Ausnahme Gebäck (Kuchen, Torten, Brot, Brötchen, Plätzchen, Muffins, Bleche): Menge der Quelle bleibt, die Anzahl Stücke zählt als Portionen.
 - **Zeiten:** `working_time` = aktive Arbeitszeit, `waiting_time` = Backen, Kühlen, Ruhen, Schmoren (Minuten).
 - **Geräte:** `devices` = alles, was man braucht: Schüsseln, Messer, Schneidebrett, Topf, Pfanne, Backform mit Größe („Springform 26 cm“), Handmixer, Pürierstab, Backofen. Tandoor zeigt das als ersten Schritt „Benötigte Küchengeräte“.
 

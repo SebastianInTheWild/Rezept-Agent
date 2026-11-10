@@ -12,10 +12,10 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 3. Rezept holen:
    - Link: `node tandoor.mjs fetch-url` (erster Link) oder `node tandoor.mjs fetch-url <link>`. Das Ergebnis ist Tandoors eigene Auslese der Seite. Liefert sie nichts (`ok: false`), kannst du die Seite nicht anders lesen. Dann `node tandoor.mjs reply "<kurze Erklärung>"` und Schluss.
    - HelloFresh-Link: ebenfalls `node tandoor.mjs fetch-url` – das Werkzeug liest HelloFresh selbst (`source: "HelloFresh"`). Du bekommst:
-     - `yields`: die Zutaten mit Mengen je Portionszahl (`servings`). Nimm die Variante für 2 Portionen, sonst die kleinste; `servings` im Entwurf = diese Zahl. Zutaten mit `amount: null` sind „nach Geschmack“ (`no_amount`).
+     - `yields`: die Zutaten mit Mengen je Portionszahl (`servings`). Nimm die Variante für 4 Portionen; gibt es sie nicht, die nächstkleinere und rechne auf 4 Portionen um (siehe „Portionen beim Import“). Zutaten mit `amount: null` sind „nach Geschmack“ (`no_amount`).
      - `steps`: Schritte, bei `ingredients` steht, welche Zutaten im Schritt verwendet werden – verteile die Zutaten entsprechend. Ohne Angabe ordne sie dem Schritt zu, in dem sie zuerst vorkommen.
      - `devices`: Utensilien → `devices`. `working_time` und `waiting_time` (Minuten) übernehmen.
-     - In den Schritten stehen Mengen für mehrere Portionsgrößen, z. B. „500 ml [750 ml | 1000 ml] Wasser“: Nimm den ersten Wert (2 Portionen) und lass die Klammer weg.
+     - In den Schritten stehen Mengen für mehrere Portionsgrößen in der Reihenfolge von `servings_options`, z. B. „500 ml [750 ml | 1000 ml] Wasser“ für 2 [3 | 4] Portionen: Nimm den Wert für 4 Portionen (hier 1000 ml) und lass die Klammer weg. Fehlt er, rechne den Wert der gewählten Variante auf 4 Portionen um.
      - `pantry: true` = Vorratszutat (Salz, Öl …), gehört trotzdem ins Rezept.
      - HelloFresh-Einheiten wie „Stück“, „Packung“, „Bund“, „Zehe“ auf die erlaubten Einheiten abbilden; Packungsangaben (z. B. „1 Packung Sahne“) mit der üblichen Menge in g/ml ergänzen und in `changes` nennen.
      - `image_file`: das Foto des Gerichts – ansehen und daraus `image_prompt` schreiben.
@@ -31,8 +31,15 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
    - Nur Text: Schreib das Rezept aus `text` ab. Steht kein Rezept darin, `reply` mit einer kurzen Erklärung und Schluss.
    - Foto: Lies jedes Bild aus `images` mit dem Read-Werkzeug und schreib das Rezept daraus ab. Unleserliche Stellen sinnvoll ergänzen und in `changes` nennen. Ist auf dem Bild kein Rezept, antworte mit `reply` und hör auf.
    - Änderungswunsch: Nimm `current_draft` und ändere nur, was gewünscht ist (plus offensichtliche Fehler gegen den Standard).
-4. Bei einem Import: `node tandoor.mjs search "<Name>"`. Gibt es das Rezept schon, leg es trotzdem an und schreib es in `changes` („Gibt es schon als …“).
-5. Schreib das Rezept im Standard mit dem Edit-Werkzeug in `{{DATA}}/entwurf.json` (die Datei gibt es schon, ersetze ihren ganzen Inhalt):
+4. **Portionen beim Import** (Webseite, HelloFresh, Video, Sprachnachricht, Foto, Text): Rechne das Rezept immer auf **4 Portionen** um, `servings: 4`.
+   - Alle Mengen mit dem Faktor 4 ÷ Portionen der Quelle multiplizieren, auch Mengen, die im Schritttext stehen. Sinnvoll runden: g und ml auf 5 bzw. 10, EL/TL auf halbe, ganze Dinge (Ei, Zwiebel, Dose, Päckchen) auf ganze Stück – bei Eiern lieber „1 Stück, groß“ als „1,5 Stück“. Zutaten ohne Menge bleiben ohne Menge.
+   - Garzeiten, Temperaturen und Formgrößen bleiben gleich; bei deutlich mehr Menge ggf. größere Pfanne oder Topf nennen.
+   - Nennt die Quelle keine Portionszahl, schätze sie aus den Mengen (z. B. 500 g Nudeln ≈ 4 Portionen) und schreib die Annahme in `changes`.
+   - In `changes`: „Von 2 auf 4 Portionen umgerechnet“ bzw. „Quelle ohne Portionsangabe, für 4 Portionen geschätzt“. Ist die Quelle schon für 4 Portionen, nichts umrechnen.
+   - **Ausnahme Gebäck:** Kuchen, Torten, Brot, Brötchen, Plätzchen/Kekse, Muffins, Blechkuchen, Hefezöpfe, Waffeln und anderes Gebackene nicht umrechnen – Mengen der Quelle übernehmen (eine Form, ein Blech, ein Laib). `servings` ist dann die Anzahl Stücke bzw. Brötchen/Plätzchen laut Quelle, sonst sinnvoll geschätzt (Springform 26 cm ≈ 12 Stücke, Blech ≈ 20 Stücke, Brot ≈ 1 Laib mit z. B. 15 Scheiben → 15). In `changes`: „Gebäck: Menge der Quelle beibehalten (12 Stücke)“.
+   - Bei einem Änderungswunsch (`revise`) gilt die gewünschte Portionszahl, wenn eine genannt wird.
+5. Bei einem Import: `node tandoor.mjs search "<Name>"`. Gibt es das Rezept schon, leg es trotzdem an und schreib es in `changes` („Gibt es schon als …“).
+6. Schreib das Rezept im Standard mit dem Edit-Werkzeug in `{{DATA}}/entwurf.json` (die Datei gibt es schon, ersetze ihren ganzen Inhalt):
 
 ```
 {
@@ -59,7 +66,7 @@ Du legst Rezepte in Tandoor an oder überarbeitest einen Entwurf. Den Auftrag ha
 ```
 
    Bei einem Änderungswunsch zu einem Verbesserungsvorschlag gehört `"original_id": <original_id>` mit in die Datei.
-6. `node tandoor.mjs propose` – prüft die Datei, legt den Entwurf in Tandoor an (bzw. ändert ihn) und zeigt ihn in Slack mit Knöpfen. Meldet es `ok: false`, lies `errors`, korrigiere die Datei und ruf `propose` noch einmal auf. Bei `ok: true` bist du fertig.
+7. `node tandoor.mjs propose` – prüft die Datei, legt den Entwurf in Tandoor an (bzw. ändert ihn) und zeigt ihn in Slack mit Knöpfen. Meldet es `ok: false`, lies `errors`, korrigiere die Datei und ruf `propose` noch einmal auf. Bei `ok: true` bist du fertig.
 
 ## Regeln
 - `nutrition` (Nährwerte pro Portion): Fehlt `nutrition` im Rezept, schätze sie aus Zutaten und Mengen und schreib `"nutrition": {"calories": 650, "proteins": 25, "fats": 30, "carbohydrates": 60}` (kcal bzw. g, gerundet, **pro Portion**, also Gesamtmenge geteilt durch `servings`). Schlagwort „Nährwerte geschätzt“ (bei `language: en`: „Nutrition estimated“) dazu und in `changes` z. B. „Nährwerte pro Portion geschätzt“. Liefert die Quelle Nährwerte (z. B. HelloFresh `nutrition`), nimm diese (umgerechnet auf eine Portion) statt zu schätzen. Vorhandene Nährwerte änderst du nur, wenn sie offensichtlich falsch sind.
