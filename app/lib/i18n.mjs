@@ -24,6 +24,7 @@ export const COMMAND_NAMES = {
   "/wochenplan": "/meal-plan",
   "/was-kochen": "/what-to-cook",
   "/neuronen": "/neurons",
+  "/neustart": "/restart",
   "/hilfe": "/help",
 };
 const GERMAN = Object.fromEntries(Object.entries(COMMAND_NAMES).map(([de, en]) => [en, de]));

@@ -14,6 +14,7 @@ A Docker container in which AI agents (Claude Code) look after the recipes in [T
 | `koch-frage` | 20:30 | “How was it?”: asks in Slack for a rating (⭐1–5) of today's planned dishes for the Tandoor cook log. Not an agent. |
 | `wochenrueckblick` | Sun 19:30 | Weekly review to the Slack channel: new recipes, proposals, what was cooked and rated, collection, Google cost. Not an agent. |
 | `token-pruefung` | 09:05 | Checks all credentials and warns in Slack in good time before tokens expire (web UI → Status). Not an agent. |
+| `neustart` | Sun 04:00 | Restarts the container once a week as soon as no agent is running. This picks up the host's current DNS server, among other things (after the home network changes, every connection otherwise fails with “fetch failed”). The bridge continues open Slack requests afterwards. `aus` turns it off. |
 
 Nothing is changed in Tandoor without you: every import and every improvement first becomes a draft, and a person decides in Slack with **Apply / Discard / Leave as is**.
 
@@ -117,6 +118,15 @@ If an agent hits the Claude usage limit ("You've hit your limit"), it retries ev
 | `google` | Gemini only, Claude is never started |
 
 Gemini needs the Google API key (the same as for AI photos), model `GEMINI_TEXT_MODELL` (default `gemini-flash-latest`). It gets the same instructions as the agent (`prompt.md`) and all the data the agent would otherwise fetch itself (job, standard, link and video results, photos, recipes) and answers in one request; the result goes through the same checks (up to two corrections on errors). Every proposal says "Created with Google Gemini …" in its changes (at the limit with "– please check carefully"); for the meal plan it's in the summary. Claude works as an agent in several steps and is usually more thorough with difficult sources; Gemini costs per request (`/google` counts it), Claude is included in the subscription. Which agents Gemini can take over is set in `agent.json` under `"fallback"`.
+
+### Restarts, outages and missed messages
+
+Docker only picks up the host's DNS server when a container starts. If the home network changes (new router, new addresses), every outgoing connection then fails with “fetch failed” until the container restarts. These things help:
+
+- **Weekly restart:** `neustart = So 04:00` in `zeitplan.conf` (default; `aus` turns it off). If an agent is running, including one from Slack, the restart waits until it is done. By hand: **`/restart`** in the channel.
+- **Self-healing:** if Slack is unreachable for 30 minutes in a row (`SELBSTHEILUNG_MIN`, `aus` = never), the bridge requests a restart itself, at most once every 6 hours (`SELBSTHEILUNG_PAUSE_H`), so a real internet outage doesn't cause a restart loop. The “running again” message then names the downtime.
+- **After a restart:** the bridge continues requests without a result (running, queued or waiting for the Claude limit) if they are at most 24 hours old, and says so in the thread. Each request is restarted at most twice. A request that was running at the moment of the restart starts over.
+- **Missed messages:** while the bridge is not connected, Slack delivers nothing. So it remembers the last message in the channel (`daten/rezepte/eingang.json`) and after every connect checks what came since (at most 3 days back). If there is something, it posts a list with **📥 Catch up** (processes everything as if it just arrived) and **🗑️ Discard** (if you already handled it by hand). Thread replies (change requests) are not included; please send those again.
 
 ### Slack commands
 

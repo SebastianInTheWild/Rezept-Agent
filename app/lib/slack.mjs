@@ -40,21 +40,35 @@ export const respond = (responseUrl, text) =>
   fetch(responseUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ response_type: "ephemeral", text }) });
 
 // Socket Mode: hält die Verbindung, quittiert jede Nachricht und meldet Ereignisse, Knopfdrücke und Slash-Befehle.
-export function socket({ onEvent, onAction, onCommand, log = console.log }) {
+// onConnect: nach jedem erfolgreichen Verbinden (z. B. verpasste Nachrichten nachsehen).
+// onFailing(ms): bei jedem gescheiterten Versuch, mit der Zeit seit dem ersten Fehlschlag in Folge (Selbstheilung).
+export function socket({ onEvent, onAction, onCommand, onConnect, onFailing, log = console.log }) {
   let stopped = false;
   let retry = 1;
+  let failingSince = 0;
   const connect = async () => {
     let url;
     try {
       url = (await slack("apps.connections.open", {}, process.env.SLACK_APP_TOKEN)).url;
     } catch (e) {
-      log(`Slack-Verbindung fehlgeschlagen: ${e.message} – neuer Versuch in ${retry * 10} s`);
-      return setTimeout(connect, Math.min(retry++, 30) * 10_000);
+      failingSince ||= Date.now();
+      const wait = Math.min(retry++, 30) * 10;
+      log(`Slack-Verbindung fehlgeschlagen: ${e.message} – neuer Versuch in ${wait} s`);
+      try {
+        onFailing?.(Date.now() - failingSince);
+      } catch (err) {
+        log(`Fehler bei der Selbstheilung: ${err.message}`);
+      }
+      return setTimeout(connect, wait * 1000);
     }
     const ws = new WebSocket(url);
     ws.onopen = () => {
       retry = 1;
+      failingSince = 0;
       log("Slack verbunden");
+      Promise.resolve()
+        .then(() => onConnect?.())
+        .catch((e) => log(`Fehler nach dem Verbinden: ${e.stack || e}`));
     };
     ws.onmessage = async (ev) => {
       let m;
