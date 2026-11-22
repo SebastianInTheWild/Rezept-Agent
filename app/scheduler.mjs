@@ -10,7 +10,8 @@ import "./lib/umgebung.mjs"; // zuerst: Einstellungen aus der Weboberfläche in 
 import "./lib/protokoll.mjs"; // Zeitstempel TT.MM.JJJJ im Log
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry } from "./run-agent.mjs";
+import { AGENTS_DIR, clearRunning, loadAgent, runAgent, pendingRetry, readStatus } from "./run-agent.mjs";
+import { RESTART_ID, restartSlots, restartRequest, clearRestartRequest } from "./lib/neustart.mjs";
 import { startWeb, takeQueued } from "./lib/web.mjs";
 import { startSync } from "./lib/sync.mjs";
 import { startBackupSchedule } from "./lib/github-sicherung.mjs";
@@ -153,6 +154,8 @@ async function loop() {
         if (!list.some((a) => a.id === id)) continue;
         await runAgent(id, { by: "von Hand" }).catch((e) => console.error(`[${id}] ${e.stack || e}`));
       }
+      // Wöchentlicher Neustart (zeitplan.conf „neustart“, Standard So 04:00) – holt u. a. den aktuellen DNS-Server des Hosts
+      restartIfDue(n, runs, list);
     } finally {
       busy = false;
     }
@@ -175,6 +178,60 @@ async function loop() {
       if (due(slot, n0) && !runs[`${a.id}@${slot}`]) runs[`${a.id}@${slot}`] = n0.day;
     }
   writeFileSync(RUNS_FILE, JSON.stringify(runs, null, 1));
+  for (const slot of restartSlots(loadSchedule())) {
+    known.add(`${RESTART_ID}@${slot}`);
+    if (due(slot, n0) && !runs[`${RESTART_ID}@${slot}`]) runs[`${RESTART_ID}@${slot}`] = n0.day;
+  }
+  writeFileSync(RUNS_FILE, JSON.stringify(runs, null, 1));
+  // Neustart: wie die Agenten einmal am Tag der Zeit; wartet, bis kein Agent mehr läuft (auch keiner aus Slack).
+  // process.exit(0) beendet den Container, Docker startet ihn neu (restart: unless-stopped) – wie „Neu starten“ in der Weboberfläche.
+  let waitingFor = "";
+  const busyAgents = (list) => list.map((a) => a.id).filter((id) => readStatus(id, "status.json")?.running);
+  function restartIfDue(n, runs, list) {
+    // Von Hand angefordert (Slack „/neustart“)
+    const asked = restartRequest();
+    if (asked) {
+      const busy = busyAgents(list);
+      if (busy.length) {
+        if (waitingFor !== busy.join()) console.log(`[${RESTART_ID}] wartet, bis ${busy.join(", ")} fertig ist`);
+        waitingFor = busy.join();
+        return;
+      }
+      clearRestartRequest();
+      console.log(`[${RESTART_ID}] Neustart von Hand (${asked.by || "?"}) – Docker startet den Container neu`);
+      setTimeout(() => process.exit(0), 500);
+      return;
+    }
+    for (const slot of restartSlots(loadSchedule())) {
+      const s = parseSlot(slot);
+      if (!s || s.interval) {
+        if (waitingFor !== `bad:${slot}`) console.error(`[${RESTART_ID}] Zeitplan „${slot}“ ungültig (Beispiele: So 04:00, Mo,Do 03:30, 04:00; „aus“ schaltet ab)`);
+        waitingFor = `bad:${slot}`;
+        continue;
+      }
+      const key = `${RESTART_ID}@${slot}`;
+      if (!known.has(key)) {
+        known.add(key);
+        if (due(slot, n) && runs[key] !== n.day) {
+          runs[key] = n.day;
+          writeFileSync(RUNS_FILE, JSON.stringify(runs, null, 1));
+          continue;
+        }
+      }
+      if (!due(slot, n) || runs[key] === n.day) continue;
+      const busy = busyAgents(list);
+      if (busy.length) {
+        if (waitingFor !== busy.join()) console.log(`[${RESTART_ID}] wartet, bis ${busy.join(", ")} fertig ist`);
+        waitingFor = busy.join();
+        return;
+      }
+      runs[key] = n.day;
+      writeFileSync(RUNS_FILE, JSON.stringify(runs, null, 1));
+      console.log(`[${RESTART_ID}] Geplanter Neustart (${slot}) – Docker startet den Container neu`);
+      setTimeout(() => process.exit(0), 500);
+      return;
+    }
+  }
   await tick();
   setInterval(tick, 30_000);
 }

@@ -14,6 +14,7 @@ Ein Docker-Container, in dem KI-Agenten (Claude Code) Rezepte in [Tandoor](https
 | `koch-frage` | 20:30 | „Wie war's?“: fragt in Slack zu den heute geplanten Gerichten nach einer Bewertung (⭐1–5) fürs Tandoor-Kochprotokoll. Kein Agent. |
 | `wochenrueckblick` | So 19:30 | Wochenrückblick in den Slack-Kanal: neue Rezepte, Vorschläge, Gekochtes mit Bewertung, Bestand, Google-Kosten. Kein Agent. |
 | `token-pruefung` | 09:05 | Prüft alle Zugangsdaten und warnt in Slack rechtzeitig vor ablaufenden Tokens (Weboberfläche → Status). Kein Agent. |
+| `neustart` | So 04:00 | Startet den Container einmal pro Woche neu, sobald kein Agent läuft. So holt er sich u. a. den aktuellen DNS-Server des Hosts (nach einem Umbau des Heimnetzes scheitert sonst jede Verbindung mit „fetch failed“). Offene Slack-Aufträge macht die Brücke danach weiter. `aus` schaltet ab. |
 
 Rezeptfotos erzeugt der Container mit KI über Google Gemini „Nano Banana“ (sehr realistisch, kostenpflichtig), Cloudflare Workers AI (kostenlos) oder OpenAI; fällt Google oder OpenAI aus, springt Cloudflare ein.
 
@@ -111,6 +112,15 @@ Läuft ein Agent ins Claude-Nutzungslimit („You've hit your limit“), startet
 | `google` | nur Gemini, Claude wird nie gestartet |
 
 Gemini braucht den Google-API-Schlüssel (derselbe wie für die KI-Fotos), Modell `GEMINI_TEXT_MODELL` (Standard `gemini-flash-latest`). Es bekommt dieselben Anweisungen wie der Agent (`prompt.md`) und alle Daten, die der Agent sonst selbst holen würde (Auftrag, Standard, Link- und Video-Auslese, Fotos, Rezepte), und antwortet in einer Anfrage; das Ergebnis läuft durch dieselbe Prüfung (bei Fehlern bis zu zwei Korrekturen). Jeder Vorschlag sagt in den Änderungen „Erstellt mit Google Gemini …“ (am Limit mit „– bitte genauer ansehen“), beim Wochenplan steht es in der Zusammenfassung. Claude arbeitet als Agent in mehreren Schritten und ist bei schwierigen Quellen meist gründlicher; Gemini kostet pro Anfrage (`/google` zählt mit), Claude ist im Abo enthalten. Welche Agenten Gemini übernehmen kann, steht in `agent.json` unter `"fallback"`.
+
+### Neustart, Ausfälle und verpasste Nachrichten
+
+Docker übernimmt den DNS-Server des Hosts nur beim Containerstart. Ändert sich das Heimnetz (neuer Router, neue Adressen), scheitert danach jede Verbindung nach außen mit „fetch failed“, bis der Container neu startet. Dagegen hilft:
+
+- **Wöchentlicher Neustart:** `neustart = So 04:00` in `zeitplan.conf` (Standard; `aus` schaltet ab). Läuft gerade ein Agent, auch einer aus Slack, wartet der Neustart, bis er fertig ist. Von Hand geht es mit **`/neustart`** im Kanal.
+- **Selbstheilung:** Ist Slack 30 Minuten am Stück nicht erreichbar (`SELBSTHEILUNG_MIN`, `aus` = nie), fordert die Brücke selbst einen Neustart an. Das passiert höchstens einmal in 6 Stunden (`SELBSTHEILUNG_PAUSE_H`), damit ein echter Internetausfall keine Neustart-Schleife auslöst. Die Meldung „läuft wieder“ nennt dann die Ausfallzeit.
+- **Nach einem Neustart:** Aufträge ohne Ergebnis (lief gerade, wartete in der Schlange oder auf das Claude-Limit) macht die Brücke weiter, wenn sie höchstens 24 Stunden alt sind. Sie sagt das im Thread. Jeder Auftrag wird höchstens zweimal neu begonnen. Ein Auftrag, der genau beim Neustart lief, beginnt von vorn.
+- **Verpasste Nachrichten:** Solange die Brücke nicht verbunden ist, stellt Slack nichts zu. Sie merkt sich deshalb die letzte Nachricht im Kanal (`daten/rezepte/eingang.json`) und sieht nach jedem Verbinden nach, was seitdem kam (höchstens 3 Tage zurück). Gibt es etwas, kommt im Kanal eine Liste mit **📥 Nachholen** (verarbeitet alles, als käme es gerade an) und **🗑️ Verwerfen** (falls du es schon von Hand erledigt hast). Antworten in Threads (Änderungswünsche) sind nicht dabei; die bitte noch einmal schicken.
 
 ### Einstellungen in der Weboberfläche
 

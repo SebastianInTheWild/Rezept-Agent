@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runAgent, readStatus, requestStart, hasStartRequest, retryMinutes } from "./run-agent.mjs";
+import { openJobs, markResumed, requestRestart, restartRequest } from "./lib/neustart.mjs";
+import { lastSeen, markSeen, missedMessages, preview, loadMissed, saveMissed, shouldHeal, markHealed, healedBefore, healMinutes, MISSED_DAYS } from "./lib/verpasst.mjs";
 import { slack, socket, post, update, react, unreact, download, linksIn, plain, link, esc, respond } from "./lib/slack.mjs";
 import { syncManifest, manifestSyncReady } from "./lib/manifest.mjs";
 import { neurons, neuronsText, googleReady, googleModel, googlePrice, cleanWish } from "./lib/bild.mjs";
@@ -57,6 +59,7 @@ async function onEvent(e) {
     return;
   }
   if (e.channel !== CHANNEL()) return;
+  markSeen(REZEPTE, e.ts); // für „verpasste Nachrichten“ nach einem Ausfall (lib/verpasst.mjs)
   const text = e.text || "";
 
   // Antwort in einem Thread: Änderungswunsch zu einem Vorschlag
@@ -280,6 +283,7 @@ async function onAction(payload) {
   if (a.action_id === "rz_draft_image") return askWish(payload, "draft", a.value, user);
   if (a.action_id === "rz_merge") return onMerge(payload, a.value, user);
   if (a.action_id.startsWith("rz_cook_")) return onCook(payload, a, user);
+  if (a.action_id.startsWith("rz_missed_")) return onMissed(payload, a, user);
   const { ts, blocks = [] } = payload.message;
   const withStatus = (text, keepButtons) => [...blocks.filter((b) => keepButtons || b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text }] }];
   await update(channel, ts, payload.message.text, withStatus(L("⏳ Einen Moment …", "⏳ One moment …"), false));
@@ -461,6 +465,7 @@ const COMMANDS = () => [
   ["/pro-tag", L("[Anzahl]", "[count]"), L("Wie viele Rezepte täglich geprüft werden – anzeigen oder ändern", "How many recipes are checked per day – show or change")],
   ["/neuronen", "", L("Heute noch freie Cloudflare-Neuronen für KI-Fotos", "Cloudflare neurons left today for AI photos")],
   ["/google", "", L("Google-Nutzung diesen Monat: Bilder, Videos, geschätzte Kosten und Rest-Guthaben", "Google usage this month: pictures, videos, estimated cost and remaining credit")],
+  ["/neustart", "", L("Rezept-Helfer neu starten – wartet, bis laufende Agenten fertig sind; offene Aufträge gehen danach weiter", "Restart the recipe helper – waits until running agents are done; open requests continue afterwards")],
   ["/hilfe", "", L("Diese Übersicht", "This overview")],
 ];
 const helpText = () => [`*${L("Rezept-Helfer", "Recipe helper")}* – ${HELP()}`, "", ...COMMANDS().map(([c, a, d]) => `• \`${cmd(c)}${a ? " " + a : ""}\` – ${d}`), "", `_${L("Version", "Version")} ${versionText()}_`].join("\n");
@@ -653,6 +658,17 @@ const commands = {
     return L(`🔍 Die Qualitätsprüfung startet in spätestens 30 Sekunden mit ${rezepte(p.batch.length)}. Die Vorschläge erscheinen im Kanal.`, `🔍 The quality check starts within 30 seconds with ${rezepte(p.batch.length)}. The proposals appear in the channel.`);
   },
 
+  "/neustart": async (c) => {
+    if (!inChannel(c)) return notInChannel();
+    if (restartRequest()) return L("⏳ Der Neustart ist schon angefordert.", "⏳ The restart has already been requested.");
+    requestRestart(`slack ${c.user_id}`);
+    log(`/neustart von ${c.user_id}`);
+    const busy = [AGENT, QUALITY, "wochenplan"].filter((id) => readStatus(id, "status.json")?.running);
+    return busy.length
+      ? L(`🔄 Neustart angefordert. Er kommt, sobald ${busy.join(", ")} fertig ist; offene Aufträge gehen danach weiter. Wenn ich wieder da bin, melde ich mich im Kanal.`, `🔄 Restart requested. It happens as soon as ${busy.join(", ")} is done; open requests continue afterwards. I'll post in the channel when I'm back.`)
+      : L("🔄 Ich starte in spätestens 30 Sekunden neu und melde mich danach im Kanal.", "🔄 I'll restart within 30 seconds and post in the channel afterwards.");
+  },
+
   "/pruefen-rezept": async (c) => {
     if (!inChannel(c)) return notInChannel();
     const q = c.text.trim();
@@ -686,7 +702,74 @@ async function onCommand(c) {
   if (!["/pro-tag", "/pruefen", "/pruefen-rezept", "/ohne-bild"].includes(name)) log(`${c.command} von ${c.user_id}`);
 }
 
-socket({ onEvent, onAction, onCommand, log });
+// ---------- Verpasste Nachrichten und Selbstheilung (lib/verpasst.mjs) ----------
+// Nach jedem Verbinden: Was kam im Kanal, während die Brücke nicht verbunden war? Wenn etwas, fragt sie mit Knöpfen.
+let checkingMissed = false;
+async function checkMissed() {
+  if (!CHANNEL() || checkingMissed) return;
+  checkingMissed = true;
+  try {
+    const since = lastSeen(REZEPTE);
+    // Erster Start mit dieser Funktion: ab jetzt merken, nichts nachholen
+    if (!since) return markSeen(REZEPTE, (Date.now() / 1000).toFixed(6));
+    const r = await slack("conversations.history", { channel: CHANNEL(), oldest: since, limit: 200 });
+    const all = loadMissed(REZEPTE);
+    const offered = new Set(Object.values(all).flatMap((x) => x.messages.map((m) => m.ts)));
+    const known = (ts) => seen.has(ts) || offered.has(ts) || existsSync(join(JOBS, `${ts.replace(".", "-")}.json`));
+    const list = missedMessages(r.messages || [], { since, known });
+    const newest = (r.messages || []).map((m) => m.ts).sort((a, b) => Number(b) - Number(a))[0];
+    if (newest) markSeen(REZEPTE, newest);
+    if (!list.length) return;
+    const id = list[0].ts.replace(".", "-");
+    all[id] = { status: "open", at: new Date().toISOString(), messages: list.map((m) => ({ ...m, channel: CHANNEL() })) };
+    saveMissed(REZEPTE, all);
+    const when = (ts) => new Date(Number(ts) * 1000).toLocaleString(locale(), { timeZone: process.env.TZ || "Europe/Berlin", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const lines = await Promise.all(
+      list.slice(0, 15).map(async (m) => {
+        const url = await slack("chat.getPermalink", { channel: CHANNEL(), message_ts: m.ts }).then((x) => x.permalink, () => "");
+        return `• ${url ? `<${url}|${when(m.ts)}>` : when(m.ts)} <@${m.user}>: ${esc(preview(m))}`;
+      }),
+    );
+    if (list.length > 15) lines.push(L(`… und ${list.length - 15} weitere`, `… and ${list.length - 15} more`));
+    const n = list.length;
+    const text = L(`📭 Ich war nicht erreichbar und habe ${n === 1 ? "eine Nachricht" : `${n} Nachrichten`} verpasst:`, `📭 I was unreachable and missed ${n === 1 ? "one message" : `${n} messages`}:`);
+    const blocks = [
+      { type: "section", text: { type: "mrkdwn", text: [text, ...lines].join("\n") } },
+      { type: "context", elements: [{ type: "mrkdwn", text: L("„Nachholen“ verarbeitet sie jetzt so, als kämen sie gerade an. Schon von Hand erledigt? Dann „Verwerfen“.", "“Catch up” processes them now as if they just arrived. Already done by hand? Then “Discard”.") }] },
+      { type: "actions", elements: [button(L("📥 Nachholen", "📥 Catch up"), "rz_missed_yes", id, "primary"), button(L("🗑️ Verwerfen", "🗑️ Discard"), "rz_missed_no", id)] },
+    ];
+    await post(CHANNEL(), text, blocks);
+    log(`${n} verpasste Nachricht(en) – Rückfrage im Kanal (${id})`);
+  } finally {
+    checkingMissed = false;
+  }
+}
+
+async function onMissed(payload, a, user) {
+  const channel = payload.channel.id;
+  const { ts, text, blocks = [] } = payload.message;
+  const status = (t) => update(channel, ts, text, [...blocks.filter((b) => b.type !== "actions"), { type: "context", elements: [{ type: "mrkdwn", text: t }] }]);
+  const all = loadMissed(REZEPTE);
+  const entry = all[a.value];
+  if (!entry || entry.status !== "open") return status(L("Schon erledigt.", "Already done."));
+  const yes = a.action_id === "rz_missed_yes";
+  Object.assign(entry, { status: yes ? "nachgeholt" : "verworfen", by: user, decided: new Date().toISOString() });
+  saveMissed(REZEPTE, all);
+  log(`${a.action_id} ${a.value} von ${user} (${entry.messages.length})`);
+  if (!yes) return status(L(`🗑️ Verworfen von <@${user}>.`, `🗑️ Discarded by <@${user}>.`));
+  await status(L(`📥 <@${user}> holt ${entry.messages.length === 1 ? "die Nachricht" : `${entry.messages.length} Nachrichten`} nach – die Antworten kommen jeweils im Thread.`, `📥 <@${user}> is catching up on ${entry.messages.length === 1 ? "the message" : `${entry.messages.length} messages`} – the answers arrive in each thread.`));
+  for (const m of entry.messages) await onEvent({ type: "message", ...m }).catch((e) => log(`Nachholen ${m.ts} fehlgeschlagen: ${e.message}`));
+}
+
+// Selbstheilung: Slack zu lange nicht erreichbar → Neustart anfordern (der Zeitplan wartet auf laufende Agenten)
+function onFailing(down) {
+  if (restartRequest() || !shouldHeal(REZEPTE, down)) return;
+  markHealed(REZEPTE, down);
+  requestRestart("selbstheilung");
+  log(`Slack seit ${Math.round(down / 60_000)} min nicht erreichbar – Neustart angefordert (Selbstheilung, SELBSTHEILUNG_MIN=${healMinutes()})`);
+}
+
+socket({ onEvent, onAction, onCommand, onConnect: checkMissed, onFailing, log });
 // Slack-Manifest (neue Befehle usw.) selbst einspielen – beim Start und alle 10 Minuten, nur wenn sich die Datei geändert hat
 let manifestError = "";
 async function manifestCheck() {
@@ -708,6 +791,22 @@ if (manifestSyncReady()) {
   manifestCheck();
   setInterval(manifestCheck, 10 * 60_000);
 } else log("Slack-Manifest wird nicht automatisch eingespielt (SLACK_APP_ID/SLACK_CONFIG_TOKEN fehlen)");
+
+// Nach einem Neustart: Aufträge, die noch kein Ergebnis haben (lief gerade, wartete in der Schlange oder auf das
+// Claude-Limit), wieder aufnehmen – höchstens 24 Stunden alt, je Auftrag höchstens zweimal (lib/neustart.mjs)
+async function resumeJobs() {
+  const open = openJobs(JOBS);
+  if (!open.length) return;
+  log(`Nach dem Neustart: ${open.length} offene${open.length === 1 ? "r Auftrag wird" : " Aufträge werden"} fortgesetzt`);
+  for (const { file, job } of open) {
+    const next = markResumed(file, job);
+    seen.add(job.ts); // falls Slack die Nachricht nach dem Neustart noch einmal zustellt
+    await post(job.channel, L("🔄 Ich wurde zwischendurch neu gestartet und mache hier jetzt weiter – du musst nichts tun.", "🔄 I was restarted in the meantime and am continuing here now – nothing to do for you."), undefined, job.thread_ts || job.ts).catch(() => {});
+    queue.push({ file, job: next });
+  }
+  work();
+}
+setTimeout(() => resumeJobs().catch((e) => log(`Offene Aufträge nicht fortgesetzt: ${e.message}`)), 5_000);
 
 // Nach einem Neustart: laufendes „Alle Bilder erneuern“ fortsetzen
 if (loadAll()?.status === "running") setTimeout(runAll, 10_000);
@@ -736,7 +835,9 @@ async function announceStart() {
     before && before !== version
       ? L(`⬆️ *Update* von ${named(prev.release, before)} auf ${named(release(), version)}`, `⬆️ *Update* from ${named(prev.release, before)} to ${named(release(), version)}`)
       : L(`🔄 Neustart · Version ${named(release(), version)}`, `🔄 Restart · version ${named(release(), version)}`);
-  const text = [L("✅ *Rezept-Helfer läuft wieder*", "✅ *Recipe helper is running again*"), kind, built ? L(`Image vom ${built}`, `image built ${built}`) : ""].filter(Boolean).join(" · ");
+  const healed = healedBefore(REZEPTE);
+  const healNote = healed && Date.now() - Date.parse(healed.at) < 30 * 60_000 ? L(`Selbstheilung: Slack war ${healed.down_min} min nicht erreichbar`, `self-healing: Slack was unreachable for ${healed.down_min} min`) : "";
+  const text = [L("✅ *Rezept-Helfer läuft wieder*", "✅ *Recipe helper is running again*"), kind, healNote, built ? L(`Image vom ${built}`, `image built ${built}`) : ""].filter(Boolean).join(" · ");
   await post(CHANNEL(), text).then(() => log(`Neustart gemeldet (${short}${before && before !== version ? `, vorher ${before.slice(0, 7)}` : ""})`), (e) => log(`Neustart-Meldung fehlgeschlagen: ${e.message}`));
 }
 announceStart();

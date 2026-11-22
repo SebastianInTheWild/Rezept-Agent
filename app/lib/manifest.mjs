@@ -142,6 +142,7 @@ const EN = {
     "/was-kochen": ["Find recipes with these ingredients", "<ingredients>"],
     "/hilfe": ["What the recipe helper can do"],
     "/google": ["Google usage and estimated cost this month"],
+    "/neustart": ["Restart the recipe helper (waits for running jobs)"],
   },
 };
 function localize(m) {

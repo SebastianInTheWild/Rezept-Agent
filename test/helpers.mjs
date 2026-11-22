@@ -275,6 +275,7 @@ export function fakeSocket() {
   };
   return {
     send: (msg) => ws.onmessage({ data: JSON.stringify(msg) }),
+    open: () => ws.onopen?.(),
     ready: () => Boolean(ws?.onmessage),
   };
 }
